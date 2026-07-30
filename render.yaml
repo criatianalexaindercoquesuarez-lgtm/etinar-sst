@@ -12,8 +12,8 @@ services:
       - key: NODE_VERSION
         value: "22"
 
-  - type: static
-    name: etinar-sst-frontend
+staticSites:
+  - name: etinar-sst-frontend
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
