@@ -28,6 +28,7 @@ import { SeedModule } from './seed/seed.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SanctionsModule } from './sanctions/sanctions.module';
 import { ComplianceEngineModule } from './compliance-engine/compliance-engine.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { ComplianceEngineModule } from './compliance-engine/compliance-engine.mo
     NotificationsModule,
     SanctionsModule,
     ComplianceEngineModule,
+    ReportsModule,
   ],
 })
 export class AppModule {}
