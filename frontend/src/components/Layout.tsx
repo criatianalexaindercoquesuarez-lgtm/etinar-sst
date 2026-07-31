@@ -6,6 +6,7 @@ import {
   FileCheck2,
   ScrollText,
   ShieldAlert,
+  FileDown,
   LogOut,
 } from 'lucide-react';
 import { useAuth, ROLE_LABELS } from '../lib/auth';
@@ -30,6 +31,12 @@ const NAV_ITEMS = [
     label: 'Sanciones y Multas',
     icon: ShieldAlert,
     roles: ['admin'],
+  },
+  {
+    to: '/reportes',
+    label: 'Reportes',
+    icon: FileDown,
+    roles: ['admin', 'coordinador_sst', 'director'],
   },
   {
     to: '/auditoria',
