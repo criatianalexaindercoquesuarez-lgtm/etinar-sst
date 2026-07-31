@@ -21,3 +21,4 @@ async function bootstrap() {
   console.log(`Sistema SST ETINAR — backend corriendo en http://localhost:${port}/api`);
 }
 bootstrap();
+// Forzar despliegue con módulo de reportes
