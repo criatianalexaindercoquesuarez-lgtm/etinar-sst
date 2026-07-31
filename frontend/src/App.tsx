@@ -9,6 +9,7 @@ import Contractors from './pages/Contractors';
 import Review from './pages/Review';
 import Audit from './pages/Audit';
 import Sanctions from './pages/Sanctions';
+import Reports from './pages/Reports';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -34,6 +35,7 @@ function AppRoutes() {
         <Route path="contratistas" element={<Contractors />} />
         <Route path="revision" element={<Review />} />
         <Route path="sanciones" element={<Sanctions />} />
+        <Route path="reportes" element={<Reports />} />
         <Route path="auditoria" element={<Audit />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
