@@ -53,4 +53,32 @@ export class ContractorsController {
   update(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     return this.contractorsService.update(id, body, req.user);
   }
+
+  @Post(':id/users')
+  @Roles('admin', 'coordinador_sst')
+  createPortalUser(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return this.contractorsService.createPortalUser(id, body, req.user);
+  }
+
+  @Get(':id/users')
+  @Roles('admin', 'coordinador_sst')
+  listPortalUsers(@Param('id') id: string) {
+    return this.contractorsService.listPortalUsers(id);
+  }
+
+  @Post('users/:userId/reset-password')
+  @Roles('admin', 'coordinador_sst')
+  resetPortalUserPassword(@Param('userId') userId: string, @Req() req: any) {
+    return this.contractorsService.resetPortalUserPassword(userId, req.user);
+  }
+
+  @Put('users/:userId/active')
+  @Roles('admin', 'coordinador_sst')
+  togglePortalUserActive(
+    @Param('userId') userId: string,
+    @Body() body: { active: boolean },
+    @Req() req: any,
+  ) {
+    return this.contractorsService.togglePortalUserActive(userId, body.active, req.user);
+  }
 }
