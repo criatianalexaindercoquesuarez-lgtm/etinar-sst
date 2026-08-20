@@ -32,6 +32,10 @@ export class DocumentsService {
    * Flujo: contratista selecciona proyecto -> carpeta -> tipo documental -> carga archivo.
    * Si ya existe un "documento lógico" para esa combinación, se crea una nueva VERSIÓN
    * (nunca se sobreescribe ni se borra la anterior).
+   *
+   * actingUser es null cuando la carga viene de un enlace público (sin login);
+   * en ese caso se usa uploaderName (nombre escrito por la persona en el
+   * formulario público) para dejar trazabilidad en la versión y en auditoría.
    */
   async upload(params: {
     projectId: string;
@@ -40,7 +44,7 @@ export class DocumentsService {
     documentTypeId: string;
     file: Express.Multer.File;
     dueDate?: string;
-  }, actingUser: any) {
+  }, actingUser: any | null, uploaderName?: string) {
     const [project, contractor, folder, documentType] = await Promise.all([
       this.projectsRepo.findOne({ where: { id: params.projectId } }),
       this.contractorsRepo.findOne({ where: { id: params.contractorId } }),
@@ -94,14 +98,16 @@ export class DocumentsService {
       fileName: params.file.originalname,
       filePath: params.file.path,
       fileHash: hash,
-      uploadedBy: { id: actingUser.userId } as any,
+      uploadedBy: actingUser ? ({ id: actingUser.userId } as any) : undefined,
+      uploadedByName: !actingUser ? uploaderName || 'Enlace público (sin nombre)' : undefined,
+      uploadedViaPublicLink: !actingUser,
     });
     const savedVersion = await this.versionsRepo.save(version);
 
     await this.auditService.log({
-      userId: actingUser.userId,
-      userEmail: actingUser.email,
-      action: 'DOCUMENT_UPLOAD',
+      userId: actingUser?.userId,
+      userEmail: actingUser?.email ?? `enlace-público:${uploaderName || 'sin nombre'}`,
+      action: actingUser ? 'DOCUMENT_UPLOAD' : 'DOCUMENT_UPLOAD_PUBLIC_LINK',
       entityType: 'DocumentVersion',
       entityId: savedVersion.id,
       details: `Documento "${documentType.name}" v${savedVersion.versionNumber} — ${contractor.legalName} / ${project.code}`,
