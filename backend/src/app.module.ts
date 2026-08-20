@@ -17,6 +17,7 @@ import { Alert } from './entities/alert.entity';
 import { SanctionRule } from './entities/sanction-rule.entity';
 import { Sanction } from './entities/sanction.entity';
 import { NotificationLog } from './entities/notification-log.entity';
+import { UploadLink } from './entities/upload-link.entity';
 
 import { AuthModule } from './auth/auth.module';
 import { CommonModule } from './common/common.module';
@@ -29,31 +30,62 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SanctionsModule } from './sanctions/sanctions.module';
 import { ComplianceEngineModule } from './compliance-engine/compliance-engine.module';
 import { ReportsModule } from './reports/reports.module';
+import { UploadLinksModule } from './upload-links/upload-links.module';
+import { PublicModule } from './public/public.module';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
-    TypeOrmModule.forRoot({
-      type: 'better-sqlite3',
-      database: join(__dirname, '..', 'etinar-sst.sqlite'),
-      entities: [
-        User,
-        Project,
-        Contractor,
-        ContractorProject,
-        Worker,
-        Folder,
-        DocumentType,
-        Document,
-        DocumentVersion,
-        AuditLog,
-        Alert,
-        SanctionRule,
-        Sanction,
-        NotificationLog,
-      ],
-      synchronize: true, // solo para entorno de desarrollo/demo
-    }),
+    TypeOrmModule.forRoot(
+      process.env.DATABASE_URL
+        ? {
+            // Producción: PostgreSQL real (ej. Neon), datos persistentes.
+            type: 'postgres',
+            url: process.env.DATABASE_URL,
+            ssl: { rejectUnauthorized: false }, // requerido por Neon y la mayoría de Postgres administrados
+            entities: [
+              User,
+              Project,
+              Contractor,
+              ContractorProject,
+              Worker,
+              Folder,
+              DocumentType,
+              Document,
+              DocumentVersion,
+              AuditLog,
+              Alert,
+              SanctionRule,
+              Sanction,
+              NotificationLog,
+              UploadLink,
+            ],
+            synchronize: true, // ver nota sobre migraciones formales en README antes de producción real
+          }
+        : {
+            // Desarrollo local: SQLite en archivo, sin configuración adicional.
+            type: 'better-sqlite3',
+            database: join(__dirname, '..', 'etinar-sst.sqlite'),
+            entities: [
+              User,
+              Project,
+              Contractor,
+              ContractorProject,
+              Worker,
+              Folder,
+              DocumentType,
+              Document,
+              DocumentVersion,
+              AuditLog,
+              Alert,
+              SanctionRule,
+              Sanction,
+              NotificationLog,
+              UploadLink,
+            ],
+            synchronize: true,
+          },
+    ),
     AuthModule,
     CommonModule,
     ProjectsModule,
@@ -65,6 +97,8 @@ import { ReportsModule } from './reports/reports.module';
     SanctionsModule,
     ComplianceEngineModule,
     ReportsModule,
+    UploadLinksModule,
+    PublicModule,
   ],
 })
 export class AppModule {}
