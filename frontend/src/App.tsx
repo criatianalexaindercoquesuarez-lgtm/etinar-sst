@@ -10,6 +10,7 @@ import Review from './pages/Review';
 import Audit from './pages/Audit';
 import Sanctions from './pages/Sanctions';
 import Reports from './pages/Reports';
+import PublicUpload from './pages/PublicUpload';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -21,6 +22,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/subir/:token" element={<PublicUpload />} />
       <Route
         path="/"
         element={
