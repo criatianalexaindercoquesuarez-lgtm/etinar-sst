@@ -28,8 +28,14 @@ export class DocumentVersion {
   @Column({ nullable: true })
   fileHash: string;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { nullable: true })
   uploadedBy: User;
+
+  @Column({ nullable: true })
+  uploadedByName: string; // nombre capturado cuando se sube vía enlace público (sin cuenta)
+
+  @Column({ default: false })
+  uploadedViaPublicLink: boolean;
 
   @CreateDateColumn()
   uploadedAt: Date;
