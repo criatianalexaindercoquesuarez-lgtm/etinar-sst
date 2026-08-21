@@ -46,7 +46,7 @@ export class DocumentVersion {
   @ManyToOne(() => User, { nullable: true })
   reviewedBy: User;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   reviewedAt: Date;
 
   @Column({ type: 'text', nullable: true })
