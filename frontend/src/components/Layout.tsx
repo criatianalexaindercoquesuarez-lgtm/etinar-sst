@@ -7,6 +7,7 @@ import {
   ScrollText,
   ShieldAlert,
   FileDown,
+  UserCog,
   LogOut,
 } from 'lucide-react';
 import { useAuth, ROLE_LABELS } from '../lib/auth';
@@ -37,6 +38,12 @@ const NAV_ITEMS = [
     label: 'Reportes',
     icon: FileDown,
     roles: ['admin', 'coordinador_sst', 'director'],
+  },
+  {
+    to: '/equipo',
+    label: 'Equipo ETINAR',
+    icon: UserCog,
+    roles: ['admin'],
   },
   {
     to: '/auditoria',
