@@ -15,6 +15,9 @@ export class AuditLog {
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   user: User;
 
+  @Column({ nullable: true })
+  userEmail: string;
+
   @Column()
   action: string;
 
