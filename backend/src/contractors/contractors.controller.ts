@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -33,7 +34,7 @@ export class ContractorsController {
   findOne(@Param('id') id: string, @Req() req: any) {
     // Un usuario contratista solo puede ver su propio expediente
     if (req.user.role === 'contratista' && req.user.contractorId !== id) {
-      return { error: 'No autorizado para ver este contratista' };
+      throw new ForbiddenException('No autorizado para ver este contratista');
     }
     return this.contractorsService.findOne(id);
   }
