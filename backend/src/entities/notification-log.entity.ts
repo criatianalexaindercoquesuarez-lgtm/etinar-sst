@@ -21,14 +21,17 @@ export class NotificationLog {
   @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })
   recipient: User;
 
-  @Column()
+  @Column({ nullable: true })
   recipientEmail: string;
 
-  @Column()
+  @Column({ nullable: true })
   subject: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', nullable: true })
   body: string;
+
+  @Column({ nullable: true })
+  relatedDocumentId: string;
 
   @Column({ default: 'email' })
   channel: string;
