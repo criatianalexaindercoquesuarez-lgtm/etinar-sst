@@ -15,20 +15,17 @@ export class AuditLog {
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   user: User;
 
-  @Column({ nullable: true })
-  userEmail: string;
-
   @Column()
   action: string;
 
   @Column({ nullable: true })
-  entityName: string;
+  entityType: string;
 
   @Column({ nullable: true })
   entityId: string;
 
-  @Column({ type: 'text', nullable: true })
-  details: string;
+  @Column({ type: 'jsonb', nullable: true })
+  details: any;
 
   @Column({ nullable: true })
   ipAddress: string;
