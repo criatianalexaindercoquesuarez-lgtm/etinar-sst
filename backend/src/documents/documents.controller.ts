@@ -67,13 +67,13 @@ export class DocumentsController {
   }
 
   @Get('project/:projectId')
-  byProject(@Param('projectId') projectId: string) {
-    return this.documentsService.findByProject(projectId);
+  byProject(@Param('projectId') projectId: string, @Req() req: any) {
+    return this.documentsService.findByProject(projectId, req.user);
   }
 
   @Get('contractor/:contractorId')
-  byContractor(@Param('contractorId') contractorId: string) {
-    return this.documentsService.findByContractor(contractorId);
+  byContractor(@Param('contractorId') contractorId: string, @Req() req: any) {
+    return this.documentsService.findByContractor(contractorId, req.user);
   }
 
   @Get('pending/review')
@@ -107,8 +107,8 @@ export class DocumentsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.documentsService.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: any) {
+    return this.documentsService.findOne(id, req.user);
   }
 
   @Post('types')

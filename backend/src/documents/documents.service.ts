@@ -45,6 +45,12 @@ export class DocumentsService {
     file: Express.Multer.File;
     dueDate?: string;
   }, actingUser: any | null, uploaderName?: string) {
+    // Un usuario con rol "contratista" solo puede subir documentos a su
+    // propia empresa, sin importar qué contractorId venga en el body.
+    if (actingUser?.role === 'contratista' && actingUser.contractorId !== params.contractorId) {
+      throw new ForbiddenException('No puedes subir documentos a otra empresa');
+    }
+
     const [project, contractor, folder, documentType] = await Promise.all([
       this.projectsRepo.findOne({ where: { id: params.projectId } }),
       this.contractorsRepo.findOne({ where: { id: params.contractorId } }),
@@ -204,33 +210,44 @@ export class DocumentsService {
     return this.findOne(document.id);
   }
 
-  findOne(id: string) {
-    return this.documentsRepo
-      .findOne({
-        where: { id },
-        relations: {
-          project: true,
-          contractor: true,
-          folder: true,
-          documentType: true,
-          versions: { uploadedBy: true, reviewedBy: true },
-        },
-      })
-      .then((doc) => {
-        if (!doc) throw new NotFoundException('Documento no encontrado');
-        return doc;
-      });
+  async findOne(id: string, actingUser?: any) {
+    const doc = await this.documentsRepo.findOne({
+      where: { id },
+      relations: {
+        project: true,
+        contractor: true,
+        folder: true,
+        documentType: true,
+        versions: { uploadedBy: true, reviewedBy: true },
+      },
+    });
+    if (!doc) throw new NotFoundException('Documento no encontrado');
+    if (actingUser?.role === 'contratista' && actingUser.contractorId !== doc.contractor.id) {
+      throw new ForbiddenException('No autorizado para ver este documento');
+    }
+    return doc;
   }
 
-  findByProject(projectId: string) {
+  /**
+   * Un contratista solo ve SUS PROPIOS documentos dentro del proyecto,
+   * nunca los de otras empresas asignadas al mismo proyecto.
+   */
+  findByProject(projectId: string, actingUser?: any) {
+    const where: any = { project: { id: projectId } };
+    if (actingUser?.role === 'contratista') {
+      where.contractor = { id: actingUser.contractorId };
+    }
     return this.documentsRepo.find({
-      where: { project: { id: projectId } },
+      where,
       relations: { contractor: true, folder: true, documentType: true, versions: true },
       order: { createdAt: 'DESC' },
     });
   }
 
-  findByContractor(contractorId: string) {
+  findByContractor(contractorId: string, actingUser?: any) {
+    if (actingUser?.role === 'contratista' && actingUser.contractorId !== contractorId) {
+      throw new ForbiddenException('No autorizado para ver los documentos de otra empresa');
+    }
     return this.documentsRepo.find({
       where: { contractor: { id: contractorId } },
       relations: { project: true, folder: true, documentType: true, versions: true },
