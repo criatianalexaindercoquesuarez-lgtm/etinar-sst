@@ -1,27 +1,37 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+} from 'typeorm';
+import { User } from './user.entity';
 
-@Entity('audit_log')
-export class AuditLog {
+@Entity('notification_logs')
+export class NotificationLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ nullable: true })
-  userId: string;
-
-  @Column({ nullable: true })
-  userEmail: string;
+  @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })
+  recipient: User;
 
   @Column()
-  action: string; // ej: "DOCUMENT_UPLOAD", "DOCUMENT_APPROVE"
+  recipientEmail: string;
 
-  @Column({ nullable: true })
-  entityType: string;
+  @Column()
+  subject: string;
 
-  @Column({ nullable: true })
-  entityId: string;
+  @Column({ type: 'text' })
+  body: string;
+
+  @Column({ default: 'email' })
+  channel: string;
+
+  @Column({ default: 'sent' })
+  status: string;
 
   @Column({ type: 'text', nullable: true })
-  details: string;
+  errorDetails: string;
 
   @CreateDateColumn()
   createdAt: Date;
