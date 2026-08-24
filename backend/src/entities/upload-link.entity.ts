@@ -5,19 +5,11 @@ import {
   ManyToOne,
   CreateDateColumn,
 } from 'typeorm';
+import { Project } from './project.entity';
+import { Folder } from './folder.entity';
+import { DocumentType } from './document-type.entity';
 import { Contractor } from './contractor.entity';
-import { User } from './user.entity';
 
-/**
- * Enlace personalizado de recepción documental: permite a un contratista
- * subir documentos SIN necesidad de usuario/contraseña, mediante un token
- * largo y aleatorio en la URL. Alternativa al acceso por login, tal como
- * contempla el flujo original ("usuario, contraseña, o enlace personalizado").
- *
- * El token es el único mecanismo de seguridad: no adivinable (32+ caracteres
- * aleatorios), revocable en cualquier momento, y opcionalmente con fecha de
- * expiración.
- */
 @Entity('upload_links')
 export class UploadLink {
   @PrimaryGeneratedColumn('uuid')
@@ -26,23 +18,29 @@ export class UploadLink {
   @Column({ unique: true })
   token: string;
 
-  @ManyToOne(() => Contractor, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Project, { onDelete: 'CASCADE' })
+  project: Project;
+
+  @ManyToOne(() => Contractor, { onDelete: 'CASCADE', nullable: true })
   contractor: Contractor;
 
-  @ManyToOne(() => User, { nullable: true })
-  createdBy: User;
+  @ManyToOne(() => Folder, { onDelete: 'CASCADE', nullable: true })
+  folder: Folder;
 
-  @Column({ default: true })
-  active: boolean;
+  @ManyToOne(() => DocumentType, { onDelete: 'CASCADE', nullable: true })
+  documentType: DocumentType;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp' })
   expiresAt: Date;
 
-  @Column({ type: 'datetime', nullable: true })
-  lastUsedAt: Date;
+  @Column({ default: false })
+  isUsed: boolean;
 
-  @Column({ default: 0 })
-  useCount: number;
+  @Column({ nullable: true })
+  usedByEmail: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  usedAt: Date;
 
   @CreateDateColumn()
   createdAt: Date;
