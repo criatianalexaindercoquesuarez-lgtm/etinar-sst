@@ -24,13 +24,13 @@ export class ProjectsController {
   }
 
   @Get()
-  findAll() {
-    return this.projectsService.findAll();
+  findAll(@Req() req: any) {
+    return this.projectsService.findAll(req.user);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.projectsService.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: any) {
+    return this.projectsService.findOne(id, req.user);
   }
 
   @Put(':id')
