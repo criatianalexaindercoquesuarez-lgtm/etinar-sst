@@ -49,7 +49,7 @@ export class Document {
   @Column({ type: 'date', nullable: true })
   issuedDate: string; // fecha de emisión del documento
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   approvedAt: Date; // fecha de aprobación (se completa automáticamente)
 
   @Column({ default: false })
