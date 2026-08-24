@@ -18,6 +18,9 @@ export class UploadLink {
   @ManyToOne(() => Contractor, { onDelete: 'CASCADE' })
   contractor: Contractor;
 
+  @Column({ nullable: true })
+  createdBy: string;
+
   @Column({ default: true })
   active: boolean;
 
