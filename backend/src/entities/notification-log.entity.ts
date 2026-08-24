@@ -7,6 +7,12 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
+export enum NotificationStatus {
+  ENVIADO = 'enviado',
+  SIMULADO = 'simulado',
+  ERROR = 'error',
+}
+
 @Entity('notification_logs')
 export class NotificationLog {
   @PrimaryGeneratedColumn('uuid')
@@ -28,7 +34,7 @@ export class NotificationLog {
   channel: string;
 
   @Column({ default: 'sent' })
-  status: string;
+  status: NotificationStatus | string;
 
   @Column({ type: 'text', nullable: true })
   errorDetails: string;
