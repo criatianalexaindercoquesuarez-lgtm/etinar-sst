@@ -32,6 +32,7 @@ import { ComplianceEngineModule } from './compliance-engine/compliance-engine.mo
 import { ReportsModule } from './reports/reports.module';
 import { UploadLinksModule } from './upload-links/upload-links.module';
 import { PublicModule } from './public/public.module';
+import { TeamUsersModule } from './team-users/team-users.module';
 
 @Module({
   imports: [
@@ -99,6 +100,7 @@ import { PublicModule } from './public/public.module';
     ReportsModule,
     UploadLinksModule,
     PublicModule,
+    TeamUsersModule,
   ],
 })
 export class AppModule {}
