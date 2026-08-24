@@ -1,15 +1,19 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+} from 'typeorm';
+import { User } from './user.entity';
 
-export enum NotificationStatus {
-  ENVIADO = 'enviado', // SMTP configurado y envío exitoso
-  SIMULADO = 'simulado', // sin SMTP configurado, solo quedó registrado
-  ERROR = 'error',
-}
-
-@Entity('notification_log')
+@Entity('notification_logs')
 export class NotificationLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })
+  recipient: User;
 
   @Column()
   recipientEmail: string;
@@ -20,11 +24,14 @@ export class NotificationLog {
   @Column({ type: 'text' })
   body: string;
 
-  @Column({ nullable: true })
-  relatedDocumentId: string;
+  @Column({ default: 'email' })
+  channel: string;
 
-  @Column({ type: 'varchar' })
-  status: NotificationStatus;
+  @Column({ default: 'sent' })
+  status: string;
+
+  @Column({ type: 'text', nullable: true })
+  errorDetails: string;
 
   @CreateDateColumn()
   createdAt: Date;
