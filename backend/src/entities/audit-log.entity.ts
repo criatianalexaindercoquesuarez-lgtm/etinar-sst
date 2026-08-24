@@ -7,31 +7,31 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
-@Entity('notification_logs')
-export class NotificationLog {
+@Entity('audit_logs')
+export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })
-  recipient: User;
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  user: User;
+
+  @Column({ nullable: true })
+  userEmail: string;
 
   @Column()
-  recipientEmail: string;
+  action: string;
 
-  @Column()
-  subject: string;
+  @Column({ nullable: true })
+  entityName: string;
 
-  @Column({ type: 'text' })
-  body: string;
-
-  @Column({ default: 'email' })
-  channel: string;
-
-  @Column({ default: 'sent' })
-  status: string;
+  @Column({ nullable: true })
+  entityId: string;
 
   @Column({ type: 'text', nullable: true })
-  errorDetails: string;
+  details: string;
+
+  @Column({ nullable: true })
+  ipAddress: string;
 
   @CreateDateColumn()
   createdAt: Date;
