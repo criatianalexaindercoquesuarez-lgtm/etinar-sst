@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Plus, X, ShieldAlert, KeyRound, Copy, Check, RefreshCw } from 'lucide-react';
+import { Plus, X, ShieldAlert, KeyRound, Copy, Check, RefreshCw, Building2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { ContractorStatusBadge } from '../components/Badges';
 
@@ -30,10 +30,17 @@ interface UploadLinkItem {
   createdAt: string;
 }
 
+interface ProjectOption {
+  id: string;
+  code: string;
+  name: string;
+}
+
 export default function Contractors() {
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [accessFor, setAccessFor] = useState<Contractor | null>(null);
+  const [assignFor, setAssignFor] = useState<Contractor | null>(null);
 
   function load() {
     api.get('/contractors').then((r) => setContractors(r.data));
@@ -86,12 +93,20 @@ export default function Contractors() {
                   )}
                 </td>
                 <td className="px-6 py-3 text-right">
-                  <button
-                    onClick={() => setAccessFor(c)}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-steel-500 hover:text-safety-500 ml-auto"
-                  >
-                    <KeyRound size={13} /> Gestionar acceso
-                  </button>
+                  <div className="flex items-center justify-end gap-4">
+                    <button
+                      onClick={() => setAssignFor(c)}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-steel-500 hover:text-safety-500"
+                    >
+                      <Building2 size={13} /> Asignar proyecto
+                    </button>
+                    <button
+                      onClick={() => setAccessFor(c)}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-steel-500 hover:text-safety-500"
+                    >
+                      <KeyRound size={13} /> Gestionar acceso
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -109,8 +124,136 @@ export default function Contractors() {
       {accessFor && (
         <PortalAccessModal contractor={accessFor} onClose={() => setAccessFor(null)} />
       )}
+      {assignFor && (
+        <AssignProjectModal contractor={assignFor} onClose={() => setAssignFor(null)} />
+      )}
 
       {showForm && <ContractorFormModal onClose={() => setShowForm(false)} onCreated={load} />}
+    </div>
+  );
+}
+
+function AssignProjectModal({
+  contractor,
+  onClose,
+}: {
+  contractor: Contractor;
+  onClose: () => void;
+}) {
+  const [allProjects, setAllProjects] = useState<ProjectOption[]>([]);
+  const [assignedIds, setAssignedIds] = useState<string[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  function load() {
+    setLoading(true);
+    Promise.all([
+      api.get('/projects'),
+      api.get(`/contractors/${contractor.id}`),
+    ])
+      .then(([projectsRes, contractorRes]) => {
+        setAllProjects(projectsRes.data);
+        const assigned = (contractorRes.data.contractorProjects || []).map(
+          (cp: any) => cp.project.id,
+        );
+        setAssignedIds(assigned);
+      })
+      .catch(() => setError('No se pudo cargar la información.'))
+      .finally(() => setLoading(false));
+  }
+  useEffect(load, [contractor.id]);
+
+  const assignedProjects = allProjects.filter((p) => assignedIds.includes(p.id));
+  const availableProjects = allProjects.filter((p) => !assignedIds.includes(p.id));
+
+  async function handleAssign() {
+    if (!selectedProjectId) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.post(`/contractors/${contractor.id}/assign-project/${selectedProjectId}`);
+      setSelectedProjectId('');
+      load();
+    } catch {
+      setError('No se pudo asignar el proyecto. Es posible que ya esté asignado.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-steel-950/60 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-steel-200">
+          <div>
+            <h2 className="font-semibold text-steel-900">Asignar a proyecto</h2>
+            <p className="text-xs text-steel-500">{contractor.legalName}</p>
+          </div>
+          <button onClick={onClose} className="text-steel-400 hover:text-steel-900">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {error && <p className="text-rojo-600 bg-rojo-100 text-sm px-3 py-2 rounded">{error}</p>}
+
+          <div>
+            <h3 className="text-sm font-semibold text-steel-900 mb-2">Proyectos asignados</h3>
+            {loading && <p className="text-sm text-steel-400">Cargando...</p>}
+            <div className="space-y-1.5">
+              {assignedProjects.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-2 border border-steel-100 rounded px-3 py-2 text-sm"
+                >
+                  <Building2 size={14} className="text-verde-600 shrink-0" />
+                  <span className="text-steel-900 font-medium">{p.code}</span>
+                  <span className="text-steel-600">{p.name}</span>
+                </div>
+              ))}
+              {!loading && assignedProjects.length === 0 && (
+                <p className="text-sm text-steel-400 py-2">
+                  Este contratista aún no está asignado a ningún proyecto — por eso no ve nada
+                  en su portal.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {!loading && (
+            <div className="border-t border-steel-200 pt-4">
+              <h3 className="text-sm font-semibold text-steel-900 mb-2">Asignar a un proyecto nuevo</h3>
+              {availableProjects.length === 0 ? (
+                <p className="text-sm text-steel-400">
+                  No hay más proyectos disponibles para asignar (o no se ha creado ninguno todavía).
+                </p>
+              ) : (
+                <div className="flex gap-2">
+                  <select
+                    value={selectedProjectId}
+                    onChange={(e) => setSelectedProjectId(e.target.value)}
+                    className="flex-1 border border-steel-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-safety-500"
+                  >
+                    <option value="">Selecciona un proyecto</option>
+                    {availableProjects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleAssign}
+                    disabled={!selectedProjectId || saving}
+                    className="bg-safety-500 hover:bg-safety-600 text-white text-sm font-semibold px-4 py-2 rounded transition-colors disabled:opacity-60 shrink-0"
+                  >
+                    {saving ? 'Asignando...' : 'Asignar'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
