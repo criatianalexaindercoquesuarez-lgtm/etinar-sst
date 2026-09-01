@@ -29,7 +29,8 @@ export class UploadLink {
 
   @Column({ type: 'timestamp', nullable: true })
   lastUsedAt: Date;
-
+@Column({ type: 'int', default: 0 })
+  useCount: number;
   @CreateDateColumn()
   createdAt: Date;
 }
