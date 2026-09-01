@@ -1,8 +1,20 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import * as fs from 'fs';
+import { join } from 'path';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  // La carpeta de archivos cargados debe existir ANTES de que el servidor
+  // reciba la primera carga. No depende de que Git haya versionado una
+  // carpeta vacía (Git no puede) — se crea aquí en cada arranque,
+  // de forma idempotente (no falla si ya existe).
+  const uploadsDir = join(process.cwd(), 'src', 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    console.log(`Carpeta de cargas creada: ${uploadsDir}`);
+  }
+
   const app = await NestFactory.create(AppModule);
 
   // En desarrollo, permite cualquier origen. En producción, configura
@@ -21,4 +33,3 @@ async function bootstrap() {
   console.log(`Sistema SST ETINAR — backend corriendo en http://localhost:${port}/api`);
 }
 bootstrap();
-// Forzar despliegue con módulo de reportes
