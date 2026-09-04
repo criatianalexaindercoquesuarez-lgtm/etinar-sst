@@ -38,4 +38,14 @@ export class ProjectsController {
   update(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     return this.projectsService.update(id, body, req.user);
   }
+
+  /**
+   * Crear una carpeta nueva en un proyecto existente, más allá de las
+   * 01-09 estándar. Ej: "10_NUEVO_REQUISITO". Solo Admin.
+   */
+  @Post(':id/folders')
+  @Roles('admin')
+  createFolder(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    return this.projectsService.createFolder(id, body, req.user);
+  }
 }
