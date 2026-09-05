@@ -12,6 +12,7 @@ import Sanctions from './pages/Sanctions';
 import Reports from './pages/Reports';
 import PublicUpload from './pages/PublicUpload';
 import Team from './pages/Team';
+import FolderAdmin from './pages/FolderAdmin';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -40,6 +41,7 @@ function AppRoutes() {
         <Route path="sanciones" element={<Sanctions />} />
         <Route path="reportes" element={<Reports />} />
         <Route path="equipo" element={<Team />} />
+        <Route path="carpetas" element={<FolderAdmin />} />
         <Route path="auditoria" element={<Audit />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
