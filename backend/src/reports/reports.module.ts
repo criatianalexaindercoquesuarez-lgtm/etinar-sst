@@ -4,13 +4,14 @@ import { Document } from '../entities/document.entity';
 import { Contractor } from '../entities/contractor.entity';
 import { Project } from '../entities/project.entity';
 import { Sanction } from '../entities/sanction.entity';
+import { Alert } from '../entities/alert.entity';
 import { AuditLog } from '../entities/audit-log.entity';
 import { ReportsService } from './reports.service';
 import { ReportsController } from './reports.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Document, Contractor, Project, Sanction, AuditLog]),
+    TypeOrmModule.forFeature([Document, Contractor, Project, Sanction, Alert, AuditLog]),
   ],
   providers: [ReportsService],
   controllers: [ReportsController],
