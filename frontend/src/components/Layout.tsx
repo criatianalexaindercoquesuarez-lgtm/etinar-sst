@@ -8,6 +8,7 @@ import {
   ShieldAlert,
   FileDown,
   UserCog,
+  FolderTree,
   LogOut,
 } from 'lucide-react';
 import { useAuth, ROLE_LABELS } from '../lib/auth';
@@ -38,6 +39,12 @@ const NAV_ITEMS = [
     label: 'Reportes',
     icon: FileDown,
     roles: ['admin', 'coordinador_sst', 'director'],
+  },
+  {
+    to: '/carpetas',
+    label: 'Gestión de Carpetas',
+    icon: FolderTree,
+    roles: ['admin'],
   },
   {
     to: '/equipo',
