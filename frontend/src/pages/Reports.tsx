@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, FileSpreadsheet, FileDown, Download } from 'lucide-react';
+import { FileText, FileSpreadsheet, FileDown, Download, Building2 } from 'lucide-react';
 import { api } from '../lib/api';
 
 interface ReportOption {
@@ -12,6 +12,22 @@ interface ReportOption {
 }
 
 const REPORTS: ReportOption[] = [
+  {
+    key: 'monthly-pdf',
+    title: 'Informe Mensual de Gestión (Gerencia)',
+    description: 'Resumen ejecutivo del mes en curso: cumplimiento general, por proyecto, ranking de contratistas y sanciones aplicadas. Pensado para enviar a Gerencia y Directores de Obra.',
+    endpoint: '/reports/monthly-executive.pdf',
+    filename: 'informe-mensual-gestion.pdf',
+    icon: Building2,
+  },
+  {
+    key: 'monthly-xlsx',
+    title: 'Informe Mensual de Gestión (Excel)',
+    description: 'Mismo informe mensual, en Excel con hojas separadas (Resumen, Por Proyecto, Por Contratista, Sanciones) para análisis o carga en Power BI.',
+    endpoint: '/reports/monthly-executive.xlsx',
+    filename: 'informe-mensual-gestion.xlsx',
+    icon: FileSpreadsheet,
+  },
   {
     key: 'compliance-pdf',
     title: 'Reporte Ejecutivo de Cumplimiento',
@@ -104,6 +120,23 @@ export default function Reports() {
             </button>
           </div>
         ))}
+      </div>
+
+      <div className="bg-white border border-steel-200 rounded-lg p-5">
+        <h3 className="font-semibold text-steel-900 mb-2">¿Prefieres un tablero en vivo de Power BI?</h3>
+        <p className="text-sm text-steel-600 mb-2">
+          Puedes conectar Power BI Desktop directamente a estos datos usando
+          "Obtener datos → Web" y pegando la URL correspondiente (necesitas
+          añadir tu token de acceso en los encabezados HTTP como
+          <code className="bg-steel-50 px-1 rounded mx-1">Authorization: Bearer TU_TOKEN</code>):
+        </p>
+        <ul className="text-xs font-mono text-steel-500 space-y-1 list-disc list-inside">
+          <li>/api/dashboard/summary</li>
+          <li>/api/dashboard/by-project</li>
+          <li>/api/dashboard/by-contractor</li>
+          <li>/api/sanctions</li>
+          <li>/api/documents/alerts/list</li>
+        </ul>
       </div>
     </div>
   );
