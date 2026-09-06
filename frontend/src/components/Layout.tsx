@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -9,9 +10,11 @@ import {
   FileDown,
   UserCog,
   FolderTree,
+  KeyRound,
   LogOut,
 } from 'lucide-react';
 import { useAuth, ROLE_LABELS } from '../lib/auth';
+import ChangePasswordModal from './ChangePasswordModal';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, roles: null },
@@ -63,6 +66,7 @@ const NAV_ITEMS = [
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   function handleLogout() {
     logout();
@@ -118,6 +122,13 @@ export default function Layout() {
             </div>
           </div>
           <button
+            onClick={() => setShowChangePassword(true)}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-steel-200 hover:bg-steel-800 transition-colors"
+          >
+            <KeyRound size={16} />
+            Cambiar mi contraseña
+          </button>
+          <button
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-3 py-2 rounded text-sm font-medium text-steel-200 hover:bg-steel-800 transition-colors"
           >
@@ -132,6 +143,10 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
+
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
     </div>
   );
 }
