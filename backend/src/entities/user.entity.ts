@@ -31,7 +31,12 @@ export class User {
   @Column({ type: 'varchar', default: UserRole.CONTRATISTA })
   role: UserRole;
 
-  // Si el usuario pertenece a un contratista (portal del contratista)
+  // Cargo/puesto de trabajo, libre — solo informativo, NO determina permisos.
+  // Ej: "Asistente de Talento Humano", "Técnico de Seguridad". Los permisos
+  // reales los da el campo "role" de arriba (admin/coordinador_sst/director).
+  @Column({ nullable: true })
+  jobTitle?: string;
+
   @ManyToOne(() => Contractor, { nullable: true })
   contractor: Contractor;
 
