@@ -25,11 +25,13 @@ export class TeamUsersService {
 
   /**
    * Crea un miembro del equipo interno de ETINAR (no un contratista).
-   * Ej: un ayudante que necesita revisar/aprobar documentación y dar
-   * seguimiento al cumplimiento, sin ser necesariamente Admin.
+   * "role" define los permisos reales en el sistema (admin/coordinador_sst/
+   * director). "jobTitle" es el cargo tal como lo quiera llamar ETINAR
+   * (ej. "Asistente de Talento Humano", "Técnico de Seguridad") — es
+   * libre y solo se muestra, no cambia lo que la persona puede hacer.
    */
   async create(
-    data: { email: string; fullName: string; role: UserRole },
+    data: { email: string; fullName: string; role: UserRole; jobTitle?: string },
     actingUser: any,
   ) {
     if (!INTERNAL_ROLES.includes(data.role)) {
@@ -47,6 +49,7 @@ export class TeamUsersService {
       email: data.email,
       fullName: data.fullName,
       role: data.role,
+      jobTitle: data.jobTitle?.trim() || undefined,
       password: hash,
     });
     const saved = await this.usersRepo.save(user);
@@ -57,7 +60,7 @@ export class TeamUsersService {
       action: 'TEAM_USER_CREATE',
       entityType: 'User',
       entityId: saved.id,
-      details: `${data.fullName} (${data.email}) — rol: ${data.role}`,
+      details: `${data.fullName} (${data.email}) — rol: ${data.role}${data.jobTitle ? ` — cargo: ${data.jobTitle}` : ''}`,
     });
 
     return {
@@ -66,6 +69,7 @@ export class TeamUsersService {
         email: saved.email,
         fullName: saved.fullName,
         role: saved.role,
+        jobTitle: saved.jobTitle,
         active: saved.active,
       },
       temporaryPassword,
@@ -85,6 +89,7 @@ export class TeamUsersService {
         email: true,
         fullName: true,
         role: true,
+        jobTitle: true,
         active: true,
         createdAt: true,
       },
@@ -153,5 +158,27 @@ export class TeamUsersService {
     });
 
     return { id: user.id, role: user.role };
+  }
+
+  /**
+   * Cambia el cargo/puesto (texto libre), sin tocar permisos.
+   */
+  async updateJobTitle(userId: string, jobTitle: string | null | undefined, actingUser: any) {
+    const user = await this.usersRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    user.jobTitle = jobTitle?.trim() || undefined;
+    await this.usersRepo.save(user);
+
+    await this.auditService.log({
+      userId: actingUser.userId,
+      userEmail: actingUser.email,
+      action: 'TEAM_USER_JOB_TITLE_CHANGE',
+      entityType: 'User',
+      entityId: user.id,
+      details: `Nuevo cargo: ${jobTitle || '(sin cargo)'}`,
+    });
+
+    return { id: user.id, jobTitle: user.jobTitle };
   }
 }
