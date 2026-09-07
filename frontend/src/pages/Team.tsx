@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Plus, X, Copy, Check, RefreshCw } from 'lucide-react';
+import { Plus, X, Copy, Check, RefreshCw, Pencil } from 'lucide-react';
 import { api } from '../lib/api';
 import { ROLE_LABELS } from '../lib/auth';
 
@@ -8,6 +8,7 @@ interface TeamMember {
   email: string;
   fullName: string;
   role: string;
+  jobTitle?: string;
   active: boolean;
   createdAt: string;
 }
@@ -20,6 +21,8 @@ export default function Team() {
   const [showForm, setShowForm] = useState(false);
   const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editingJobTitleFor, setEditingJobTitleFor] = useState<string | null>(null);
+  const [jobTitleDraft, setJobTitleDraft] = useState('');
 
   function load() {
     setLoading(true);
@@ -39,6 +42,12 @@ export default function Team() {
 
   async function changeRole(id: string, role: string) {
     await api.put(`/team-users/${id}/role`, { role });
+    load();
+  }
+
+  async function saveJobTitle(id: string) {
+    await api.put(`/team-users/${id}/job-title`, { jobTitle: jobTitleDraft });
+    setEditingJobTitleFor(null);
     load();
   }
 
@@ -94,8 +103,9 @@ export default function Team() {
           <thead className="bg-steel-50 text-steel-600 text-xs uppercase tracking-wide">
             <tr>
               <th className="text-left px-6 py-2.5 font-semibold">Nombre</th>
+              <th className="text-left px-6 py-2.5 font-semibold">Cargo</th>
               <th className="text-left px-6 py-2.5 font-semibold">Correo</th>
-              <th className="text-left px-6 py-2.5 font-semibold">Rol</th>
+              <th className="text-left px-6 py-2.5 font-semibold">Rol del sistema</th>
               <th className="text-left px-6 py-2.5 font-semibold">Estado</th>
               <th className="text-left px-6 py-2.5 font-semibold"></th>
             </tr>
@@ -104,6 +114,37 @@ export default function Team() {
             {members.map((m) => (
               <tr key={m.id} className="border-t border-steel-100">
                 <td className="px-6 py-3 font-medium text-steel-900">{m.fullName}</td>
+                <td className="px-6 py-3 text-steel-600">
+                  {editingJobTitleFor === m.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        autoFocus
+                        value={jobTitleDraft}
+                        onChange={(e) => setJobTitleDraft(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && saveJobTitle(m.id)}
+                        placeholder="Ej: Asistente de Talento Humano"
+                        className="border border-steel-200 rounded px-2 py-1 text-xs w-48"
+                      />
+                      <button
+                        onClick={() => saveJobTitle(m.id)}
+                        className="text-verde-600 hover:text-verde-700"
+                      >
+                        <Check size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setEditingJobTitleFor(m.id);
+                        setJobTitleDraft(m.jobTitle || '');
+                      }}
+                      className="flex items-center gap-1.5 text-left hover:text-safety-500 group"
+                    >
+                      {m.jobTitle || <span className="text-steel-400 italic">Sin cargo — clic para agregar</span>}
+                      <Pencil size={11} className="opacity-0 group-hover:opacity-60" />
+                    </button>
+                  )}
+                </td>
                 <td className="px-6 py-3 text-steel-600">{m.email}</td>
                 <td className="px-6 py-3">
                   <select
@@ -146,7 +187,7 @@ export default function Team() {
             ))}
             {!loading && members.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-6 py-6 text-steel-400 text-center">
+                <td colSpan={6} className="px-6 py-6 text-steel-400 text-center">
                   No hay usuarios internos registrados todavía.
                 </td>
               </tr>
@@ -177,6 +218,7 @@ function NewMemberModal({
 }) {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
   const [role, setRole] = useState('coordinador_sst');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -186,7 +228,7 @@ function NewMemberModal({
     setSaving(true);
     setError('');
     try {
-      const { data } = await api.post('/team-users', { fullName, email, role });
+      const { data } = await api.post('/team-users', { fullName, email, role, jobTitle });
       onCreated({ email: data.user.email, password: data.temporaryPassword });
       onClose();
     } catch (err: any) {
@@ -219,6 +261,20 @@ function NewMemberModal({
           </div>
           <div>
             <label className="block text-xs font-semibold text-steel-600 uppercase tracking-wide mb-1.5">
+              Cargo / puesto (libre, escribe lo que sea)
+            </label>
+            <input
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
+              placeholder="Ej: Asistente de Talento Humano, Técnico de Seguridad..."
+              className="w-full border border-steel-200 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-safety-500"
+            />
+            <p className="text-xs text-steel-400 mt-1">
+              Es solo una etiqueta descriptiva — el permiso real lo da el "Rol del sistema" de abajo.
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-steel-600 uppercase tracking-wide mb-1.5">
               Correo (será su usuario)
             </label>
             <input
@@ -231,7 +287,7 @@ function NewMemberModal({
           </div>
           <div>
             <label className="block text-xs font-semibold text-steel-600 uppercase tracking-wide mb-1.5">
-              Rol
+              Rol del sistema (define qué puede hacer)
             </label>
             <select
               value={role}
