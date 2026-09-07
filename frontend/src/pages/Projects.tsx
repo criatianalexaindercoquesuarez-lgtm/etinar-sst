@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, Pencil } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 
@@ -11,6 +11,8 @@ interface Project {
   client: string;
   city: string;
   status: string;
+  startDate?: string;
+  endDate?: string;
   director: string;
   sstCoordinator: string;
 }
@@ -18,8 +20,9 @@ interface Project {
 export default function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   const { user } = useAuth();
-  const canCreate = user && ['admin', 'coordinador_sst'].includes(user.role);
+  const canManage = user && ['admin', 'coordinador_sst'].includes(user.role);
 
   function load() {
     api.get('/projects').then((r) => setProjects(r.data));
@@ -38,7 +41,7 @@ export default function Projects() {
             Obras de construcción gestionadas por ETINAR
           </p>
         </div>
-        {canCreate && (
+        {canManage && (
           <button
             onClick={() => setShowForm(true)}
             className="flex items-center gap-2 bg-safety-500 hover:bg-safety-600 text-white text-sm font-semibold px-4 py-2.5 rounded transition-colors"
@@ -50,55 +53,83 @@ export default function Projects() {
 
       <div className="grid md:grid-cols-2 gap-4">
         {projects.map((p) => (
-          <Link
+          <div
             key={p.id}
-            to={`/proyectos/${p.id}`}
-            className="bg-white border border-steel-200 rounded-lg p-5 hover:border-safety-400 transition-colors"
+            className="relative bg-white border border-steel-200 rounded-lg p-5 hover:border-safety-400 transition-colors"
           >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-mono text-steel-400">{p.code}</span>
-              <span
-                className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                  p.status === 'activo'
-                    ? 'bg-verde-100 text-verde-600'
-                    : 'bg-steel-200 text-steel-600'
-                }`}
+            {canManage && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setEditingProject(p);
+                }}
+                title="Editar proyecto"
+                className="absolute top-4 right-4 text-steel-400 hover:text-safety-500 bg-white rounded p-1"
               >
-                {p.status}
-              </span>
-            </div>
-            <h3 className="font-semibold text-steel-900">{p.name}</h3>
-            <p className="text-sm text-steel-600 mt-1">{p.client} · {p.city}</p>
-            <p className="text-xs text-steel-400 mt-3">
-              Coordinador SST: {p.sstCoordinator}
-            </p>
-          </Link>
+                <Pencil size={15} />
+              </button>
+            )}
+            <Link to={`/proyectos/${p.id}`} className="block">
+              <div className="flex items-center justify-between mb-2 pr-8">
+                <span className="text-xs font-mono text-steel-400">{p.code}</span>
+                <span
+                  className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                    p.status === 'activo'
+                      ? 'bg-verde-100 text-verde-600'
+                      : 'bg-steel-200 text-steel-600'
+                  }`}
+                >
+                  {p.status}
+                </span>
+              </div>
+              <h3 className="font-semibold text-steel-900">{p.name}</h3>
+              <p className="text-sm text-steel-600 mt-1">{p.client} · {p.city}</p>
+              <p className="text-xs text-steel-400 mt-3">
+                Coordinador SST: {p.sstCoordinator}
+              </p>
+            </Link>
+          </div>
         ))}
         {projects.length === 0 && (
           <p className="text-steel-400 col-span-2">No hay proyectos registrados.</p>
         )}
       </div>
 
-      {showForm && <ProjectFormModal onClose={() => setShowForm(false)} onCreated={load} />}
+      {showForm && (
+        <ProjectFormModal mode="create" onClose={() => setShowForm(false)} onSaved={load} />
+      )}
+      {editingProject && (
+        <ProjectFormModal
+          mode="edit"
+          project={editingProject}
+          onClose={() => setEditingProject(null)}
+          onSaved={load}
+        />
+      )}
     </div>
   );
 }
 
 function ProjectFormModal({
+  mode,
+  project,
   onClose,
-  onCreated,
+  onSaved,
 }: {
+  mode: 'create' | 'edit';
+  project?: Project;
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: () => void;
 }) {
   const [form, setForm] = useState({
-    code: '',
-    name: '',
-    client: '',
-    city: '',
-    startDate: '',
-    director: '',
-    sstCoordinator: '',
+    code: project?.code ?? '',
+    name: project?.name ?? '',
+    client: project?.client ?? '',
+    city: project?.city ?? '',
+    startDate: project?.startDate ?? '',
+    director: project?.director ?? '',
+    sstCoordinator: project?.sstCoordinator ?? '',
   });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -108,11 +139,19 @@ function ProjectFormModal({
     setSaving(true);
     setError('');
     try {
-      await api.post('/projects', form);
-      onCreated();
+      if (mode === 'create') {
+        await api.post('/projects', form);
+      } else {
+        await api.put(`/projects/${project!.id}`, form);
+      }
+      onSaved();
       onClose();
     } catch {
-      setError('No se pudo crear el proyecto. Verifica que el código no esté repetido.');
+      setError(
+        mode === 'create'
+          ? 'No se pudo crear el proyecto. Verifica que el código no esté repetido.'
+          : 'No se pudo guardar el cambio.',
+      );
     } finally {
       setSaving(false);
     }
@@ -122,7 +161,9 @@ function ProjectFormModal({
     <div className="fixed inset-0 bg-steel-950/60 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-steel-200">
-          <h2 className="font-semibold text-steel-900">Nuevo proyecto</h2>
+          <h2 className="font-semibold text-steel-900">
+            {mode === 'create' ? 'Nuevo proyecto' : 'Editar proyecto'}
+          </h2>
           <button onClick={onClose} className="text-steel-400 hover:text-steel-900">
             <X size={20} />
           </button>
@@ -138,16 +179,18 @@ function ProjectFormModal({
 
           {error && <p className="text-rojo-600 bg-rojo-100 text-sm px-3 py-2 rounded">{error}</p>}
 
-          <p className="text-xs text-steel-400">
-            Al crear el proyecto se generará automáticamente la estructura de 9 carpetas documentales estándar.
-          </p>
+          {mode === 'create' && (
+            <p className="text-xs text-steel-400">
+              Al crear el proyecto se generará automáticamente la estructura de carpetas documentales estándar.
+            </p>
+          )}
 
           <button
             type="submit"
             disabled={saving}
             className="w-full bg-safety-500 hover:bg-safety-600 text-white font-semibold py-2.5 rounded transition-colors disabled:opacity-60"
           >
-            {saving ? 'Creando...' : 'Crear proyecto'}
+            {saving ? 'Guardando...' : mode === 'create' ? 'Crear proyecto' : 'Guardar cambios'}
           </button>
         </form>
       </div>
