@@ -33,4 +33,9 @@ export class TeamUsersController {
   updateRole(@Param('id') id: string, @Body() body: { role: string }, @Req() req: any) {
     return this.teamUsersService.updateRole(id, body.role as any, req.user);
   }
+
+  @Put(':id/job-title')
+  updateJobTitle(@Param('id') id: string, @Body() body: { jobTitle: string }, @Req() req: any) {
+    return this.teamUsersService.updateJobTitle(id, body.jobTitle, req.user);
+  }
 }
