@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Contractor } from '../entities/contractor.entity';
@@ -8,9 +8,8 @@ import { ContractorProject } from '../entities/contractor-project.entity';
 import { Project } from '../entities/project.entity';
 import { User, UserRole } from '../entities/user.entity';
 import { AuditService } from '../common/audit.service';
+import { UserProjectsService } from '../user-projects/user-projects.service';
 
-// Genera una contraseña temporal legible y suficientemente segura,
-// ej. "sst-forja-4821", para compartir fácilmente con el contratista.
 function generateTemporaryPassword(): string {
   const words = ['sst', 'obra', 'forja', 'nexo', 'ancla', 'faro', 'cima', 'vega'];
   const w1 = words[Math.floor(Math.random() * words.length)];
@@ -28,6 +27,7 @@ export class ContractorsService {
     @InjectRepository(Project) private projectsRepo: Repository<Project>,
     @InjectRepository(User) private usersRepo: Repository<User>,
     private auditService: AuditService,
+    private userProjectsService: UserProjectsService,
   ) {}
 
   async create(data: Partial<Contractor>, actingUser: any) {
@@ -44,7 +44,27 @@ export class ContractorsService {
     return saved;
   }
 
-  findAll() {
+  /**
+   * Un usuario interno SIN restricción de proyecto ve todos los
+   * contratistas (comportamiento histórico). Uno CON proyectos
+   * asignados solo ve los contratistas que participan en esos proyectos.
+   */
+  async findAll(actingUser?: any) {
+    if (actingUser?.userId) {
+      const restrictedIds = await this.userProjectsService.getAssignedProjectIds(actingUser.userId);
+      if (restrictedIds.length > 0) {
+        const links = await this.contractorProjectsRepo.find({
+          where: { project: { id: In(restrictedIds) } },
+          relations: { contractor: true },
+        });
+        const uniqueIds = [...new Set(links.map((l) => l.contractor.id))];
+        if (uniqueIds.length === 0) return [];
+        return this.contractorsRepo.find({
+          where: { id: In(uniqueIds) },
+          order: { createdAt: 'DESC' },
+        });
+      }
+    }
     return this.contractorsRepo.find({ order: { createdAt: 'DESC' } });
   }
 
@@ -90,61 +110,45 @@ export class ContractorsService {
     return this.findOne(id);
   }
 
-  /**
-   * Crea el acceso al portal para un contratista real: un usuario con rol
-   * "contratista" ligado a esa empresa. Genera una contraseña temporal si
-   * no se especifica una. La contraseña en texto plano solo se devuelve
-   * UNA VEZ en la respuesta de este método — nunca se puede recuperar
-   * después (queda solo el hash), así que el admin debe copiarla y
-   * compartirla con el contratista de inmediato.
-   */
+  // ---------- Gestión de accesos de portal ----------
+
   async createPortalUser(
     contractorId: string,
-    data: { email: string; fullName: string; password?: string },
+    data: { email: string; fullName: string },
     actingUser: any,
   ) {
     const contractor = await this.findOne(contractorId);
-
     const existing = await this.usersRepo.findOne({ where: { email: data.email } });
-    if (existing) {
-      throw new ConflictException('Ya existe un usuario registrado con ese correo');
-    }
+    if (existing) throw new ConflictException('Ya existe un usuario con ese correo');
 
-    const plainPassword = data.password || generateTemporaryPassword();
-    const hash = await bcrypt.hash(plainPassword, 10);
+    const temporaryPassword = generateTemporaryPassword();
+    const hash = await bcrypt.hash(temporaryPassword, 10);
 
-    const user = await this.usersRepo.save(
-      this.usersRepo.create({
-        email: data.email,
-        fullName: data.fullName,
-        password: hash,
-        role: UserRole.CONTRATISTA,
-        contractor,
-      }),
-    );
+    const user = this.usersRepo.create({
+      email: data.email,
+      fullName: data.fullName,
+      role: UserRole.CONTRATISTA,
+      password: hash,
+      contractor,
+    });
+    const saved = await this.usersRepo.save(user);
 
     await this.auditService.log({
       userId: actingUser?.userId,
       userEmail: actingUser?.email,
-      action: 'CONTRACTOR_PORTAL_USER_CREATED',
+      action: 'PORTAL_USER_CREATE',
       entityType: 'User',
-      entityId: user.id,
-      details: `Acceso de portal creado para ${data.email} (${contractor.legalName})`,
+      entityId: saved.id,
+      details: `Acceso creado para ${contractor.legalName}: ${data.email}`,
     });
 
     return {
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.fullName,
-        active: user.active,
-      },
-      temporaryPassword: plainPassword,
+      user: { id: saved.id, email: saved.email, fullName: saved.fullName, active: saved.active },
+      temporaryPassword,
     };
   }
 
   async listPortalUsers(contractorId: string) {
-    await this.findOne(contractorId);
     return this.usersRepo.find({
       where: { contractor: { id: contractorId } },
       select: { id: true, email: true, fullName: true, active: true, createdAt: true },
@@ -152,26 +156,22 @@ export class ContractorsService {
   }
 
   async resetPortalUserPassword(userId: string, actingUser: any) {
-    const user = await this.usersRepo.findOne({
-      where: { id: userId },
-      relations: { contractor: true },
-    });
+    const user = await this.usersRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuario no encontrado');
 
-    const plainPassword = generateTemporaryPassword();
-    user.password = await bcrypt.hash(plainPassword, 10);
+    const temporaryPassword = generateTemporaryPassword();
+    user.password = await bcrypt.hash(temporaryPassword, 10);
     await this.usersRepo.save(user);
 
     await this.auditService.log({
       userId: actingUser?.userId,
       userEmail: actingUser?.email,
-      action: 'CONTRACTOR_PORTAL_PASSWORD_RESET',
+      action: 'PORTAL_USER_RESET_PASSWORD',
       entityType: 'User',
       entityId: user.id,
-      details: `Contraseña reiniciada para ${user.email}`,
     });
 
-    return { email: user.email, temporaryPassword: plainPassword };
+    return { temporaryPassword };
   }
 
   async togglePortalUserActive(userId: string, active: boolean, actingUser: any) {
@@ -179,13 +179,15 @@ export class ContractorsService {
     if (!user) throw new NotFoundException('Usuario no encontrado');
     user.active = active;
     await this.usersRepo.save(user);
+
     await this.auditService.log({
       userId: actingUser?.userId,
       userEmail: actingUser?.email,
-      action: active ? 'CONTRACTOR_PORTAL_USER_ENABLED' : 'CONTRACTOR_PORTAL_USER_DISABLED',
+      action: active ? 'PORTAL_USER_ENABLE' : 'PORTAL_USER_DISABLE',
       entityType: 'User',
       entityId: user.id,
     });
+
     return { id: user.id, active: user.active };
   }
 }
