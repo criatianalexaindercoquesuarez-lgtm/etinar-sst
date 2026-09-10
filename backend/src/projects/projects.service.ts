@@ -1,19 +1,13 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Project } from '../entities/project.entity';
 import { Folder } from '../entities/folder.entity';
 import { DocumentType } from '../entities/document-type.entity';
 import { ContractorProject } from '../entities/contractor-project.entity';
 import { AuditService } from '../common/audit.service';
+import { UserProjectsService } from '../user-projects/user-projects.service';
 
-/**
- * Estructura base oficial de ETINAR S.A. — ver "Estructura de Carpetas –
- * Contratistas/Subcontratistas, Gestión SST ETINAR" (documento de referencia).
- * Esta es la plantilla inicial: el Admin puede agregar carpetas y
- * subcarpetas nuevas desde el sistema sin tocar el código (ver
- * createFolder() más abajo y el endpoint de tipos documentales).
- */
 const CARPETAS_ESTANDAR = [
   { code: '01', name: '01_DOCUMENTACION_GENERAL' },
   { code: '02', name: '02_SALUD_OCUPACIONAL' },
@@ -111,6 +105,7 @@ export class ProjectsService {
     @InjectRepository(ContractorProject)
     private contractorProjectsRepo: Repository<ContractorProject>,
     private auditService: AuditService,
+    private userProjectsService: UserProjectsService,
   ) {}
 
   async create(data: Partial<Project>, actingUser: any) {
@@ -119,11 +114,7 @@ export class ProjectsService {
 
     for (const carpeta of CARPETAS_ESTANDAR) {
       await this.foldersRepo.save(
-        this.foldersRepo.create({
-          code: carpeta.code,
-          name: carpeta.name,
-          project: saved,
-        }),
+        this.foldersRepo.create({ code: carpeta.code, name: carpeta.name, project: saved }),
       );
     }
 
@@ -137,10 +128,16 @@ export class ProjectsService {
     });
 
     await this.ensureStandardDocumentTypes(saved.id);
-
     return saved;
   }
 
+  /**
+   * Reglas de visibilidad:
+   * - Contratista: solo los proyectos a los que su empresa está asignada.
+   * - Usuario interno (admin/coordinador_sst/director) SIN restricción
+   *   de proyecto (caso por defecto, no rompe nada existente): ve todos.
+   * - Usuario interno CON proyectos asignados: solo esos.
+   */
   async findAll(actingUser: any) {
     if (actingUser?.role === 'contratista') {
       const links = await this.contractorProjectsRepo.find({
@@ -151,6 +148,17 @@ export class ProjectsService {
         .map((l) => l.project)
         .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     }
+
+    if (actingUser?.userId) {
+      const restrictedIds = await this.userProjectsService.getAssignedProjectIds(actingUser.userId);
+      if (restrictedIds.length > 0) {
+        return this.projectsRepo.find({
+          where: { id: In(restrictedIds) },
+          order: { createdAt: 'DESC' },
+        });
+      }
+    }
+
     return this.projectsRepo.find({ order: { createdAt: 'DESC' } });
   }
 
@@ -160,13 +168,13 @@ export class ProjectsService {
 
     if (actingUser?.role === 'contratista') {
       const link = await this.contractorProjectsRepo.findOne({
-        where: {
-          project: { id },
-          contractor: { id: actingUser.contractorId },
-        },
+        where: { project: { id }, contractor: { id: actingUser.contractorId } },
       });
-      if (!link) {
-        throw new ForbiddenException('Tu empresa no está asignada a este proyecto');
+      if (!link) throw new ForbiddenException('Tu empresa no está asignada a este proyecto');
+    } else if (actingUser?.userId) {
+      const restrictedIds = await this.userProjectsService.getAssignedProjectIds(actingUser.userId);
+      if (restrictedIds.length > 0 && !restrictedIds.includes(id)) {
+        throw new ForbiddenException('No tienes acceso a este proyecto');
       }
     }
 
@@ -179,13 +187,6 @@ export class ProjectsService {
     return project!;
   }
 
-  /**
-   * Completa la estructura estándar (carpetas 01-09 + subcarpetas) sin
-   * duplicar ni tocar nada que ya exista con otro nombre. Además, renueva
-   * el nombre de las carpetas estándar (01-09) para que coincida con la
-   * nomenclatura oficial más reciente, sin afectar los documentos ya
-   * cargados (se identifican por ID, no por nombre).
-   */
   private async ensureStandardDocumentTypes(projectId: string) {
     const folders = await this.foldersRepo.find({
       where: { project: { id: projectId } },
@@ -194,7 +195,6 @@ export class ProjectsService {
 
     const existingCodes = new Set(folders.map((f) => f.code));
 
-    // Crear cualquier carpeta estándar que falte por completo
     for (const carpeta of CARPETAS_ESTANDAR) {
       if (!existingCodes.has(carpeta.code)) {
         const nueva = await this.foldersRepo.save(
@@ -209,7 +209,6 @@ export class ProjectsService {
     }
 
     for (const folder of folders) {
-      // Actualizar el nombre a la nomenclatura oficial vigente, si cambió
       const estandar = CARPETAS_ESTANDAR.find((c) => c.code === folder.code);
       if (estandar && folder.name !== estandar.name) {
         await this.foldersRepo.update(folder.id, { name: estandar.name });
@@ -234,16 +233,7 @@ export class ProjectsService {
     }
   }
 
-  /**
-   * Crea una carpeta NUEVA en un proyecto, más allá de las 01-09
-   * estándar (ej. "10_NUEVO_REQUISITO"). Pensado para que el Admin la
-   * use desde el sistema sin depender de un cambio de código.
-   */
-  async createFolder(
-    projectId: string,
-    data: { code: string; name: string },
-    actingUser: any,
-  ) {
+  async createFolder(projectId: string, data: { code: string; name: string }, actingUser: any) {
     const project = await this.projectsRepo.findOne({ where: { id: projectId } });
     if (!project) throw new NotFoundException('Proyecto no encontrado');
 
@@ -271,7 +261,7 @@ export class ProjectsService {
   }
 
   async update(id: string, data: Partial<Project>, actingUser: any) {
-    await this.findOne(id);
+    await this.findOne(id, actingUser);
     await this.projectsRepo.update(id, data);
     await this.auditService.log({
       userId: actingUser?.userId,
@@ -280,6 +270,6 @@ export class ProjectsService {
       entityType: 'Project',
       entityId: id,
     });
-    return this.findOne(id);
+    return this.findOne(id, actingUser);
   }
 }
