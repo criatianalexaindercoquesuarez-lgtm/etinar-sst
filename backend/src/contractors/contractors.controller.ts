@@ -26,13 +26,12 @@ export class ContractorsController {
 
   @Get()
   @Roles('admin', 'coordinador_sst', 'director')
-  findAll() {
-    return this.contractorsService.findAll();
+  findAll(@Req() req: any) {
+    return this.contractorsService.findAll(req.user);
   }
 
   @Get(':id')
   findOne(@Param('id') id: string, @Req() req: any) {
-    // Un usuario contratista solo puede ver su propio expediente
     if (req.user.role === 'contratista' && req.user.contractorId !== id) {
       throw new ForbiddenException('No autorizado para ver este contratista');
     }
