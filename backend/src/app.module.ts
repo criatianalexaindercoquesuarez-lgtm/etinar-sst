@@ -18,6 +18,7 @@ import { SanctionRule } from './entities/sanction-rule.entity';
 import { Sanction } from './entities/sanction.entity';
 import { NotificationLog } from './entities/notification-log.entity';
 import { UploadLink } from './entities/upload-link.entity';
+import { UserProject } from './entities/user-project.entity';
 
 import { AuthModule } from './auth/auth.module';
 import { CommonModule } from './common/common.module';
@@ -33,6 +34,26 @@ import { ReportsModule } from './reports/reports.module';
 import { UploadLinksModule } from './upload-links/upload-links.module';
 import { PublicModule } from './public/public.module';
 import { TeamUsersModule } from './team-users/team-users.module';
+import { UserProjectsModule } from './user-projects/user-projects.module';
+
+const ENTITIES = [
+  User,
+  Project,
+  Contractor,
+  ContractorProject,
+  Worker,
+  Folder,
+  DocumentType,
+  Document,
+  DocumentVersion,
+  AuditLog,
+  Alert,
+  SanctionRule,
+  Sanction,
+  NotificationLog,
+  UploadLink,
+  UserProject,
+];
 
 @Module({
   imports: [
@@ -40,50 +61,16 @@ import { TeamUsersModule } from './team-users/team-users.module';
     TypeOrmModule.forRoot(
       process.env.DATABASE_URL
         ? {
-            // Producción: PostgreSQL real (ej. Neon), datos persistentes.
             type: 'postgres',
             url: process.env.DATABASE_URL,
-            ssl: { rejectUnauthorized: false }, // requerido por Neon y la mayoría de Postgres administrados
-            entities: [
-              User,
-              Project,
-              Contractor,
-              ContractorProject,
-              Worker,
-              Folder,
-              DocumentType,
-              Document,
-              DocumentVersion,
-              AuditLog,
-              Alert,
-              SanctionRule,
-              Sanction,
-              NotificationLog,
-              UploadLink,
-            ],
-            synchronize: true, // ver nota sobre migraciones formales en README antes de producción real
+            ssl: { rejectUnauthorized: false },
+            entities: ENTITIES,
+            synchronize: true,
           }
         : {
-            // Desarrollo local: SQLite en archivo, sin configuración adicional.
             type: 'better-sqlite3',
             database: join(__dirname, '..', 'etinar-sst.sqlite'),
-            entities: [
-              User,
-              Project,
-              Contractor,
-              ContractorProject,
-              Worker,
-              Folder,
-              DocumentType,
-              Document,
-              DocumentVersion,
-              AuditLog,
-              Alert,
-              SanctionRule,
-              Sanction,
-              NotificationLog,
-              UploadLink,
-            ],
+            entities: ENTITIES,
             synchronize: true,
           },
     ),
@@ -101,7 +88,7 @@ import { TeamUsersModule } from './team-users/team-users.module';
     UploadLinksModule,
     PublicModule,
     TeamUsersModule,
+    UserProjectsModule,
   ],
 })
 export class AppModule {}
-
