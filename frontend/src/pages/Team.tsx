@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Plus, X, Copy, Check, RefreshCw, Pencil } from 'lucide-react';
+import { Plus, X, Copy, Check, RefreshCw, Pencil, Building2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { ROLE_LABELS } from '../lib/auth';
 
@@ -13,6 +13,17 @@ interface TeamMember {
   createdAt: string;
 }
 
+interface ProjectOption {
+  id: string;
+  code: string;
+  name: string;
+}
+
+interface AssignmentItem {
+  id: string;
+  project: ProjectOption;
+}
+
 const ASSIGNABLE_ROLES = ['coordinador_sst', 'director', 'admin'];
 
 export default function Team() {
@@ -23,6 +34,7 @@ export default function Team() {
   const [copied, setCopied] = useState(false);
   const [editingJobTitleFor, setEditingJobTitleFor] = useState<string | null>(null);
   const [jobTitleDraft, setJobTitleDraft] = useState('');
+  const [assignFor, setAssignFor] = useState<TeamMember | null>(null);
 
   function load() {
     setLoading(true);
@@ -125,10 +137,7 @@ export default function Team() {
                         placeholder="Ej: Asistente de Talento Humano"
                         className="border border-steel-200 rounded px-2 py-1 text-xs w-48"
                       />
-                      <button
-                        onClick={() => saveJobTitle(m.id)}
-                        className="text-verde-600 hover:text-verde-700"
-                      >
+                      <button onClick={() => saveJobTitle(m.id)} className="text-verde-600 hover:text-verde-700">
                         <Check size={14} />
                       </button>
                     </div>
@@ -169,6 +178,13 @@ export default function Team() {
                 <td className="px-6 py-3 text-right">
                   <div className="flex items-center justify-end gap-3">
                     <button
+                      onClick={() => setAssignFor(m)}
+                      title="Restringir a proyecto(s) específicos"
+                      className="flex items-center gap-1 text-xs font-semibold text-steel-500 hover:text-safety-500"
+                    >
+                      <Building2 size={13} /> Proyectos
+                    </button>
+                    <button
                       onClick={() => resetPassword(m.id, m.email)}
                       title="Generar nueva contraseña"
                       className="text-steel-400 hover:text-safety-500"
@@ -205,6 +221,153 @@ export default function Team() {
           }}
         />
       )}
+      {assignFor && (
+        <AssignProjectsModal member={assignFor} onClose={() => setAssignFor(null)} />
+      )}
+    </div>
+  );
+}
+
+function AssignProjectsModal({
+  member,
+  onClose,
+}: {
+  member: TeamMember;
+  onClose: () => void;
+}) {
+  const [allProjects, setAllProjects] = useState<ProjectOption[]>([]);
+  const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  function load() {
+    setLoading(true);
+    Promise.all([api.get('/projects'), api.get(`/team-users/${member.id}/projects`)])
+      .then(([projectsRes, assignmentsRes]) => {
+        setAllProjects(projectsRes.data);
+        setAssignments(assignmentsRes.data);
+      })
+      .catch(() => setError('No se pudo cargar la información.'))
+      .finally(() => setLoading(false));
+  }
+  useEffect(load, [member.id]);
+
+  const assignedIds = assignments.map((a) => a.project.id);
+  const availableProjects = allProjects.filter((p) => !assignedIds.includes(p.id));
+  const isRestricted = assignments.length > 0;
+
+  async function handleAssign() {
+    if (!selectedProjectId) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.post(`/team-users/${member.id}/projects/${selectedProjectId}`);
+      setSelectedProjectId('');
+      load();
+    } catch {
+      setError('No se pudo asignar el proyecto.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleUnassign(linkId: string) {
+    setSaving(true);
+    try {
+      await api.delete(`/team-users/projects/${linkId}`);
+      load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-steel-950/60 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-steel-200">
+          <div>
+            <h2 className="font-semibold text-steel-900">Restringir a proyecto(s)</h2>
+            <p className="text-xs text-steel-500">{member.fullName}</p>
+          </div>
+          <button onClick={onClose} className="text-steel-400 hover:text-steel-900">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div
+            className={`text-xs px-3 py-2 rounded ${
+              isRestricted ? 'bg-amarillo-100 text-amarillo-600' : 'bg-verde-100 text-verde-600'
+            }`}
+          >
+            {isRestricted
+              ? 'Esta persona SOLO ve y revisa los proyectos listados abajo.'
+              : 'Esta persona ve TODOS los proyectos (sin restricción). Asigna uno para restringirla.'}
+          </div>
+
+          {error && <p className="text-rojo-600 bg-rojo-100 text-sm px-3 py-2 rounded">{error}</p>}
+
+          <div>
+            <h3 className="text-sm font-semibold text-steel-900 mb-2">Proyectos asignados</h3>
+            {loading && <p className="text-sm text-steel-400">Cargando...</p>}
+            <div className="space-y-1.5">
+              {assignments.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between border border-steel-100 rounded px-3 py-2 text-sm"
+                >
+                  <div className="flex items-center gap-2">
+                    <Building2 size={14} className="text-verde-600 shrink-0" />
+                    <span className="text-steel-900 font-medium">{a.project.code}</span>
+                    <span className="text-steel-600">{a.project.name}</span>
+                  </div>
+                  <button
+                    onClick={() => handleUnassign(a.id)}
+                    disabled={saving}
+                    className="text-xs font-semibold text-steel-400 hover:text-rojo-600"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              ))}
+              {!loading && assignments.length === 0 && (
+                <p className="text-sm text-steel-400 py-2">Ninguno — acceso global.</p>
+              )}
+            </div>
+          </div>
+
+          {!loading && (
+            <div className="border-t border-steel-200 pt-4">
+              <h3 className="text-sm font-semibold text-steel-900 mb-2">Asignar un proyecto</h3>
+              {availableProjects.length === 0 ? (
+                <p className="text-sm text-steel-400">No hay más proyectos disponibles para asignar.</p>
+              ) : (
+                <div className="flex gap-2">
+                  <select
+                    value={selectedProjectId}
+                    onChange={(e) => setSelectedProjectId(e.target.value)}
+                    className="flex-1 border border-steel-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-safety-500"
+                  >
+                    <option value="">Selecciona un proyecto</option>
+                    {availableProjects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleAssign}
+                    disabled={!selectedProjectId || saving}
+                    className="bg-safety-500 hover:bg-safety-600 text-white text-sm font-semibold px-4 py-2 rounded transition-colors disabled:opacity-60 shrink-0"
+                  >
+                    Asignar
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -269,9 +432,6 @@ function NewMemberModal({
               placeholder="Ej: Asistente de Talento Humano, Técnico de Seguridad..."
               className="w-full border border-steel-200 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-safety-500"
             />
-            <p className="text-xs text-steel-400 mt-1">
-              Es solo una etiqueta descriptiva — el permiso real lo da el "Rol del sistema" de abajo.
-            </p>
           </div>
           <div>
             <label className="block text-xs font-semibold text-steel-600 uppercase tracking-wide mb-1.5">
@@ -303,7 +463,9 @@ function NewMemberModal({
           {error && <p className="text-rojo-600 bg-rojo-100 text-sm px-3 py-2 rounded">{error}</p>}
 
           <p className="text-xs text-steel-400">
-            La contraseña se genera automáticamente y solo se muestra una vez.
+            La contraseña se genera automáticamente y solo se muestra una vez. Después de crearlo,
+            usa el botón "Proyectos" en la tabla para restringirlo a uno o varios proyectos si no
+            debe ver todo.
           </p>
 
           <button
