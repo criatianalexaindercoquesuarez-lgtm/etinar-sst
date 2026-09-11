@@ -1,35 +1,26 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Delete,
-  Param,
-  Body,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { UserProjectsService } from './user-projects.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Roles, RolesGuard } from '../auth/roles.guard';
 
-@UseGuards(JwtAuthGuard)
-@Controller('user-projects')
+@Controller('team-users')
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('admin')
 export class UserProjectsController {
-  constructor(private readonly userProjectsService: UserProjectsService) {}
+  constructor(private userProjectsService: UserProjectsService) {}
 
-  @Get('user/:userId')
-  async getByUserId(@Param('userId') userId: string) {
-    return this.userProjectsService.findByUserId(userId);
+  @Get(':id/projects')
+  list(@Param('id') id: string) {
+    return this.userProjectsService.listAssignments(id);
   }
 
-  @Post()
-  async assign(@Body() body: { userId: string; projectId: string }) {
-    return this.userProjectsService.assignProjectToUser(body.userId, body.projectId);
+  @Post(':id/projects/:projectId')
+  assign(@Param('id') id: string, @Param('projectId') projectId: string, @Req() req: any) {
+    return this.userProjectsService.assign(id, projectId, req.user);
   }
 
-  @Delete('user/:userId/project/:projectId')
-  async remove(
-    @Param('userId') userId: string,
-    @Param('projectId') projectId: string,
-  ) {
-    return this.userProjectsService.removeProjectFromUser(userId, projectId);
+  @Delete('projects/:linkId')
+  unassign(@Param('linkId') linkId: string, @Req() req: any) {
+    return this.userProjectsService.unassign(linkId, req.user);
   }
 }
