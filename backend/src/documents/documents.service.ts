@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { Document, DocumentStatus } from '../entities/document.entity';
@@ -12,6 +12,7 @@ import { Contractor } from '../entities/contractor.entity';
 import { Alert, AlertType } from '../entities/alert.entity';
 import { AuditService } from '../common/audit.service';
 import { SharePointSyncService } from '../sharepoint/sharepoint-sync.service';
+import { UserProjectsService } from '../user-projects/user-projects.service';
 
 @Injectable()
 export class DocumentsService {
@@ -26,17 +27,9 @@ export class DocumentsService {
     @InjectRepository(Alert) private alertsRepo: Repository<Alert>,
     private auditService: AuditService,
     private sharePointSync: SharePointSyncService,
+    private userProjectsService: UserProjectsService,
   ) {}
 
-  /**
-   * Flujo: contratista selecciona proyecto -> carpeta -> tipo documental -> carga archivo.
-   * Si ya existe un "documento lógico" para esa combinación, se crea una nueva VERSIÓN
-   * (nunca se sobreescribe ni se borra la anterior).
-   *
-   * actingUser es null cuando la carga viene de un enlace público (sin login);
-   * en ese caso se usa uploaderName (nombre escrito por la persona en el
-   * formulario público) para dejar trazabilidad en la versión y en auditoría.
-   */
   async upload(params: {
     projectId: string;
     contractorId: string;
@@ -45,8 +38,6 @@ export class DocumentsService {
     file: Express.Multer.File;
     dueDate?: string;
   }, actingUser: any | null, uploaderName?: string) {
-    // Un usuario con rol "contratista" solo puede subir documentos a su
-    // propia empresa, sin importar qué contractorId venga en el body.
     if (actingUser?.role === 'contratista' && actingUser.contractorId !== params.contractorId) {
       throw new ForbiddenException('No puedes subir documentos a otra empresa');
     }
@@ -119,9 +110,6 @@ export class DocumentsService {
       details: `Documento "${documentType.name}" v${savedVersion.versionNumber} — ${contractor.legalName} / ${project.code}`,
     });
 
-    // Sincronización automática con SharePoint (si está configurada).
-    // No bloquea ni falla la carga si SharePoint no está disponible: el
-    // almacenamiento local ya guardó el archivo como fuente de verdad.
     if (this.sharePointSync.configured) {
       const syncResult = await this.sharePointSync.syncDocumentVersion({
         projectCode: project.code,
@@ -129,7 +117,7 @@ export class DocumentsService {
         folderName: folder.name,
         documentTypeName: documentType.name,
         fileName: params.file.originalname,
-        fileBuffer: fileBuffer,
+        fileBuffer,
       });
       if (syncResult.synced) {
         savedVersion.sharePointSynced = true;
@@ -167,16 +155,10 @@ export class DocumentsService {
       observar: DocumentStatus.OBSERVADO,
       rechazar: DocumentStatus.RECHAZADO,
     };
-    const reviewStatusMap = {
-      aprobar: 'aprobado',
-      observar: 'observado',
-      rechazar: 'rechazado',
-    };
+    const reviewStatusMap = { aprobar: 'aprobado', observar: 'observado', rechazar: 'rechazado' };
 
     document.status = statusMap[action];
-    if (action === 'aprobar') {
-      document.approvedAt = new Date();
-    }
+    if (action === 'aprobar') document.approvedAt = new Date();
     await this.documentsRepo.save(document);
 
     latestVersion.reviewStatus = reviewStatusMap[action];
@@ -188,10 +170,7 @@ export class DocumentsService {
     if (action === 'observar' || action === 'rechazar') {
       await this.alertsRepo.save(
         this.alertsRepo.create({
-          type:
-            action === 'observar'
-              ? AlertType.DOCUMENTO_OBSERVADO
-              : AlertType.DOCUMENTO_RECHAZADO,
+          type: action === 'observar' ? AlertType.DOCUMENTO_OBSERVADO : AlertType.DOCUMENTO_RECHAZADO,
           document,
           message: `Documento "${document.documentType?.name}" ${action === 'observar' ? 'observado' : 'rechazado'}: ${comments || 'sin comentarios'}`,
         }),
@@ -228,10 +207,6 @@ export class DocumentsService {
     return doc;
   }
 
-  /**
-   * Un contratista solo ve SUS PROPIOS documentos dentro del proyecto,
-   * nunca los de otras empresas asignadas al mismo proyecto.
-   */
   findByProject(projectId: string, actingUser?: any) {
     const where: any = { project: { id: projectId } };
     if (actingUser?.role === 'contratista') {
@@ -255,12 +230,27 @@ export class DocumentsService {
     });
   }
 
-  findPendingReview() {
+  /**
+   * Documentos pendientes de revisión. Si el usuario (Coordinador SST,
+   * Director, Admin) tiene proyectos asignados en UserProject, solo ve
+   * los pendientes de ESOS proyectos. Sin asignación, ve todos (default).
+   */
+  async findPendingReview(actingUser?: any) {
+    const where: any = [
+      { status: DocumentStatus.PENDIENTE },
+      { status: DocumentStatus.EN_REVISION },
+    ];
+
+    if (actingUser?.userId) {
+      const restrictedIds = await this.userProjectsService.getAssignedProjectIds(actingUser.userId);
+      if (restrictedIds.length > 0) {
+        where[0].project = { id: In(restrictedIds) };
+        where[1].project = { id: In(restrictedIds) };
+      }
+    }
+
     return this.documentsRepo.find({
-      where: [
-        { status: DocumentStatus.PENDIENTE },
-        { status: DocumentStatus.EN_REVISION },
-      ],
+      where,
       relations: {
         contractor: true,
         project: true,
@@ -272,11 +262,31 @@ export class DocumentsService {
     });
   }
 
-  /**
-   * Motor de alertas: revisa documentos próximos a vencer o vencidos.
-   * En producción esto correría como job programado (cron); aquí se expone
-   * también como endpoint para ejecutarlo bajo demanda.
-   */
+  async getVersionForDownload(versionId: string, actingUser: any) {
+    const version = await this.versionsRepo.findOne({
+      where: { id: versionId },
+      relations: { document: { contractor: true } },
+    });
+    if (!version) throw new NotFoundException('Versión no encontrada');
+
+    if (
+      actingUser.role === 'contratista' &&
+      actingUser.contractorId !== version.document.contractor.id
+    ) {
+      throw new ForbiddenException('No autorizado para ver este documento');
+    }
+
+    return version;
+  }
+
+  findAlerts() {
+    return this.alertsRepo.find({
+      where: { resolved: false },
+      relations: { document: { contractor: true, documentType: true } },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   async runExpirationCheck() {
     const documents = await this.documentsRepo.find({
       where: { status: DocumentStatus.APROBADO },
@@ -311,31 +321,5 @@ export class DocumentsService {
       }
     }
     return results;
-  }
-
-  async getVersionForDownload(versionId: string, actingUser: any) {
-    const version = await this.versionsRepo.findOne({
-      where: { id: versionId },
-      relations: { document: { contractor: true } },
-    });
-    if (!version) throw new NotFoundException('Versión no encontrada');
-
-    // Un contratista solo puede descargar/previsualizar sus propios documentos
-    if (
-      actingUser.role === 'contratista' &&
-      actingUser.contractorId !== version.document.contractor.id
-    ) {
-      throw new ForbiddenException('No autorizado para ver este documento');
-    }
-
-    return version;
-  }
-
-  findAlerts() {
-    return this.alertsRepo.find({
-      where: { resolved: false },
-      relations: { document: { contractor: true, documentType: true } },
-      order: { createdAt: 'DESC' },
-    });
   }
 }
