@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, X, Folder as FolderIcon, FileText } from 'lucide-react';
+import { Plus, X, Folder as FolderIcon, FileText, Pencil } from 'lucide-react';
 import { api } from '../lib/api';
 
 interface DocType {
@@ -31,6 +31,7 @@ export default function FolderAdmin() {
 
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [subcarpetaFor, setSubcarpetaFor] = useState<FolderItem | null>(null);
+  const [editingType, setEditingType] = useState<{ folder: FolderItem; type: DocType } | null>(null);
 
   useEffect(() => {
     api.get('/projects').then((r) => setProjects(r.data));
@@ -59,9 +60,9 @@ export default function FolderAdmin() {
           Gestión de Carpetas
         </h1>
         <p className="text-steel-600 text-sm mt-1">
-          Crea carpetas y subcarpetas nuevas sin depender de cambios de código.
-          La estructura estándar (01-09) se mantiene como base; aquí puedes
-          ampliarla.
+          Crea, renombra o ajusta carpetas y subcarpetas sin depender de cambios de código.
+          La estructura estándar (01-09) se mantiene como base; aquí puedes ampliarla o
+          adaptarla a cada proyecto.
         </p>
       </header>
 
@@ -119,15 +120,24 @@ export default function FolderAdmin() {
                     {f.documentTypes.map((t) => (
                       <div
                         key={t.id}
-                        className="flex items-center gap-1.5 text-xs text-steel-600 px-2 py-1 bg-steel-50 rounded"
+                        className="flex items-center justify-between gap-1.5 text-xs text-steel-600 px-2 py-1 bg-steel-50 rounded group"
                       >
-                        <FileText size={11} className="text-steel-400 shrink-0" />
-                        <span className="truncate">{t.name}</span>
-                        {t.hasExpiration && (
-                          <span className="text-steel-400 shrink-0">
-                            · vigencia {t.validityDays}d
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <FileText size={11} className="text-steel-400 shrink-0" />
+                          <span className="truncate">{t.name}</span>
+                          {t.hasExpiration && (
+                            <span className="text-steel-400 shrink-0">
+                              · vigencia {t.validityDays}d
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => setEditingType({ folder: f, type: t })}
+                          className="text-steel-400 hover:text-safety-500 opacity-0 group-hover:opacity-100 shrink-0"
+                          title="Editar / renombrar"
+                        >
+                          <Pencil size={11} />
+                        </button>
                       </div>
                     ))}
                     {f.documentTypes.length === 0 && (
@@ -150,10 +160,21 @@ export default function FolderAdmin() {
       )}
 
       {subcarpetaFor && (
-        <NewSubcarpetaModal
+        <SubcarpetaFormModal
+          mode="create"
           folder={subcarpetaFor}
           onClose={() => setSubcarpetaFor(null)}
-          onCreated={() => loadProject(selectedProjectId)}
+          onSaved={() => loadProject(selectedProjectId)}
+        />
+      )}
+
+      {editingType && (
+        <SubcarpetaFormModal
+          mode="edit"
+          folder={editingType.folder}
+          type={editingType.type}
+          onClose={() => setEditingType(null)}
+          onSaved={() => loadProject(selectedProjectId)}
         />
       )}
     </div>
@@ -245,18 +266,22 @@ function NewFolderModal({
   );
 }
 
-function NewSubcarpetaModal({
+function SubcarpetaFormModal({
+  mode,
   folder,
+  type,
   onClose,
-  onCreated,
+  onSaved,
 }: {
+  mode: 'create' | 'edit';
   folder: FolderItem;
+  type?: DocType;
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: () => void;
 }) {
-  const [name, setName] = useState('');
-  const [hasExpiration, setHasExpiration] = useState(false);
-  const [validityDays, setValidityDays] = useState('365');
+  const [name, setName] = useState(type?.name ?? '');
+  const [hasExpiration, setHasExpiration] = useState(type?.hasExpiration ?? false);
+  const [validityDays, setValidityDays] = useState(String(type?.validityDays ?? 365));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -268,16 +293,24 @@ function NewSubcarpetaModal({
     setSaving(true);
     setError('');
     try {
-      await api.post('/documents/types', {
-        folderId: folder.id,
-        name: name.trim(),
-        hasExpiration,
-        validityDays: hasExpiration ? Number(validityDays) : undefined,
-      });
-      onCreated();
+      if (mode === 'create') {
+        await api.post('/documents/types', {
+          folderId: folder.id,
+          name: name.trim(),
+          hasExpiration,
+          validityDays: hasExpiration ? Number(validityDays) : undefined,
+        });
+      } else {
+        await api.put(`/documents/types/${type!.id}`, {
+          name: name.trim(),
+          hasExpiration,
+          validityDays: hasExpiration ? Number(validityDays) : undefined,
+        });
+      }
+      onSaved();
       onClose();
     } catch {
-      setError('No se pudo crear la subcarpeta.');
+      setError(mode === 'create' ? 'No se pudo crear la subcarpeta.' : 'No se pudo guardar el cambio.');
     } finally {
       setSaving(false);
     }
@@ -287,7 +320,9 @@ function NewSubcarpetaModal({
     <div className="fixed inset-0 bg-steel-950/60 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-steel-900">Nueva subcarpeta</h2>
+          <h2 className="font-semibold text-steel-900">
+            {mode === 'create' ? 'Nueva subcarpeta' : 'Editar subcarpeta'}
+          </h2>
           <button onClick={onClose} className="text-steel-400 hover:text-steel-900">
             <X size={20} />
           </button>
@@ -329,12 +364,19 @@ function NewSubcarpetaModal({
 
         {error && <p className="text-rojo-600 bg-rojo-100 text-sm px-3 py-2 rounded">{error}</p>}
 
+        {mode === 'edit' && (
+          <p className="text-xs text-steel-400">
+            Cambiar el nombre no afecta los documentos ya cargados con este tipo — siguen
+            vinculados correctamente.
+          </p>
+        )}
+
         <button
           onClick={submit}
           disabled={saving}
           className="w-full bg-safety-500 hover:bg-safety-600 text-white font-semibold py-2.5 rounded transition-colors disabled:opacity-60"
         >
-          {saving ? 'Creando...' : 'Crear subcarpeta'}
+          {saving ? 'Guardando...' : mode === 'create' ? 'Crear subcarpeta' : 'Guardar cambios'}
         </button>
       </div>
     </div>
