@@ -31,4 +31,23 @@ export class DocumentTypesService {
   findByFolder(folderId: string) {
     return this.typesRepo.find({ where: { folder: { id: folderId } } });
   }
+
+  /**
+   * Renombra o ajusta una subcarpeta (tipo documental) existente.
+   * No afecta a los documentos ya cargados con ese tipo: siguen
+   * vinculados por ID, no por nombre.
+   */
+  async update(
+    id: string,
+    data: { name?: string; hasExpiration?: boolean; validityDays?: number },
+  ) {
+    const type = await this.typesRepo.findOne({ where: { id } });
+    if (!type) throw new NotFoundException('Subcarpeta no encontrada');
+
+    if (data.name !== undefined) type.name = data.name;
+    if (data.hasExpiration !== undefined) type.hasExpiration = data.hasExpiration;
+    if (data.validityDays !== undefined) type.validityDays = data.validityDays;
+
+    return this.typesRepo.save(type);
+  }
 }
