@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Req,
   Res,
   UploadedFile,
@@ -106,6 +107,12 @@ export class DocumentsController {
   @Roles('admin', 'coordinador_sst')
   createType(@Body() body: any) {
     return this.documentTypesService.create(body);
+  }
+
+  @Put('types/:id')
+  @Roles('admin', 'coordinador_sst')
+  updateType(@Param('id') id: string, @Body() body: any) {
+    return this.documentTypesService.update(id, body);
   }
 
   @Get('types/folder/:folderId')
