@@ -1,14 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DocumentType } from '../entities/document-type.entity';
 import { Folder } from '../entities/folder.entity';
+import { Document } from '../entities/document.entity';
 
 @Injectable()
 export class DocumentTypesService {
   constructor(
     @InjectRepository(DocumentType) private typesRepo: Repository<DocumentType>,
     @InjectRepository(Folder) private foldersRepo: Repository<Folder>,
+    @InjectRepository(Document) private documentsRepo: Repository<Document>,
   ) {}
 
   async create(data: {
@@ -49,5 +51,29 @@ export class DocumentTypesService {
     if (data.validityDays !== undefined) type.validityDays = data.validityDays;
 
     return this.typesRepo.save(type);
+  }
+
+  /**
+   * Elimina una subcarpeta SOLO si no tiene ningún documento cargado.
+   * Si ya tiene documentos, rechaza la eliminación con un mensaje claro
+   * en vez de borrar información o fallar de forma confusa — coherente
+   * con el principio del sistema de nunca perder trazabilidad documental.
+   */
+  async remove(id: string) {
+    const type = await this.typesRepo.findOne({ where: { id } });
+    if (!type) throw new NotFoundException('Subcarpeta no encontrada');
+
+    const documentsCount = await this.documentsRepo.count({
+      where: { documentType: { id } },
+    });
+    if (documentsCount > 0) {
+      throw new ConflictException(
+        `No se puede eliminar: esta subcarpeta ya tiene ${documentsCount} documento(s) cargado(s). ` +
+          'Si ya no la necesitas, renómbrala en vez de borrarla.',
+      );
+    }
+
+    await this.typesRepo.delete(id);
+    return { success: true };
   }
 }
