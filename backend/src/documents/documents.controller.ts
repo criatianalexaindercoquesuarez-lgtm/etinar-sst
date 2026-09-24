@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -113,6 +114,12 @@ export class DocumentsController {
   @Roles('admin', 'coordinador_sst')
   updateType(@Param('id') id: string, @Body() body: any) {
     return this.documentTypesService.update(id, body);
+  }
+
+  @Delete('types/:id')
+  @Roles('admin')
+  removeType(@Param('id') id: string) {
+    return this.documentTypesService.remove(id);
   }
 
   @Get('types/folder/:folderId')
