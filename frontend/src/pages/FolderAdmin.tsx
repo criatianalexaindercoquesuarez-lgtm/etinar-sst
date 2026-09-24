@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, X, Folder as FolderIcon, FileText, Pencil } from 'lucide-react';
+import { Plus, X, Folder as FolderIcon, FileText, Pencil, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 
 interface DocType {
@@ -28,10 +28,12 @@ export default function FolderAdmin() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(false);
+  const [globalError, setGlobalError] = useState('');
 
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [subcarpetaFor, setSubcarpetaFor] = useState<FolderItem | null>(null);
   const [editingType, setEditingType] = useState<{ folder: FolderItem; type: DocType } | null>(null);
+  const [deletingType, setDeletingType] = useState<{ folder: FolderItem; type: DocType } | null>(null);
 
   useEffect(() => {
     api.get('/projects').then((r) => setProjects(r.data));
@@ -53,6 +55,22 @@ export default function FolderAdmin() {
     loadProject(selectedProjectId);
   }, [selectedProjectId]);
 
+  async function confirmDelete() {
+    if (!deletingType) return;
+    setGlobalError('');
+    try {
+      await api.delete(`/documents/types/${deletingType.type.id}`);
+      setDeletingType(null);
+      loadProject(selectedProjectId);
+    } catch (err: any) {
+      setGlobalError(
+        err?.response?.data?.message ||
+          'No se pudo eliminar la subcarpeta.',
+      );
+      setDeletingType(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <header>
@@ -60,11 +78,15 @@ export default function FolderAdmin() {
           Gestión de Carpetas
         </h1>
         <p className="text-steel-600 text-sm mt-1">
-          Crea, renombra o ajusta carpetas y subcarpetas sin depender de cambios de código.
-          La estructura estándar (01-09) se mantiene como base; aquí puedes ampliarla o
-          adaptarla a cada proyecto.
+          Crea, renombra, elimina o ajusta carpetas y subcarpetas sin depender de cambios de
+          código. La estructura estándar (01-09) se mantiene como base; aquí puedes ampliarla
+          o adaptarla a cada proyecto.
         </p>
       </header>
+
+      {globalError && (
+        <p className="text-rojo-600 bg-rojo-100 text-sm px-4 py-2.5 rounded">{globalError}</p>
+      )}
 
       <div className="bg-white border border-steel-200 rounded-lg p-5">
         <label className="block text-xs font-semibold text-steel-600 uppercase tracking-wide mb-1.5">
@@ -131,13 +153,22 @@ export default function FolderAdmin() {
                             </span>
                           )}
                         </div>
-                        <button
-                          onClick={() => setEditingType({ folder: f, type: t })}
-                          className="text-steel-400 hover:text-safety-500 opacity-0 group-hover:opacity-100 shrink-0"
-                          title="Editar / renombrar"
-                        >
-                          <Pencil size={11} />
-                        </button>
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 shrink-0">
+                          <button
+                            onClick={() => setEditingType({ folder: f, type: t })}
+                            className="text-steel-400 hover:text-safety-500"
+                            title="Editar / renombrar"
+                          >
+                            <Pencil size={11} />
+                          </button>
+                          <button
+                            onClick={() => setDeletingType({ folder: f, type: t })}
+                            className="text-steel-400 hover:text-rojo-600"
+                            title="Eliminar"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                     {f.documentTypes.length === 0 && (
@@ -176,6 +207,33 @@ export default function FolderAdmin() {
           onClose={() => setEditingType(null)}
           onSaved={() => loadProject(selectedProjectId)}
         />
+      )}
+
+      {deletingType && (
+        <div className="fixed inset-0 bg-steel-950/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg w-full max-w-sm p-6 space-y-4">
+            <h2 className="font-semibold text-steel-900">¿Eliminar subcarpeta?</h2>
+            <p className="text-sm text-steel-600">
+              Vas a eliminar <strong>{deletingType.type.name}</strong> de{' '}
+              {deletingType.folder.code} — {deletingType.folder.name}.
+              {' '}Si ya tiene documentos cargados, no se podrá eliminar (te avisaremos).
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeletingType(null)}
+                className="flex-1 border border-steel-200 rounded py-2 text-sm font-semibold text-steel-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="flex-1 bg-rojo-600 hover:opacity-90 text-white rounded py-2 text-sm font-semibold"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
