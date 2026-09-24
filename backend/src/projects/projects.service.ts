@@ -131,13 +131,6 @@ export class ProjectsService {
     return saved;
   }
 
-  /**
-   * Reglas de visibilidad:
-   * - Contratista: solo los proyectos a los que su empresa está asignada.
-   * - Usuario interno (admin/coordinador_sst/director) SIN restricción
-   *   de proyecto (caso por defecto, no rompe nada existente): ve todos.
-   * - Usuario interno CON proyectos asignados: solo esos.
-   */
   async findAll(actingUser: any) {
     if (actingUser?.role === 'contratista') {
       const links = await this.contractorProjectsRepo.find({
@@ -187,6 +180,12 @@ export class ProjectsService {
     return project!;
   }
 
+  /**
+   * Completa el catálogo estándar SOLO la primera vez que se visita cada
+   * carpeta (marcada con folder.catalogSeeded). Después de esa primera
+   * vez, la carpeta queda 100% en manos del Admin: renombrar o quitar una
+   * subcarpeta NUNCA la vuelve a recrear automáticamente.
+   */
   private async ensureStandardDocumentTypes(projectId: string) {
     const folders = await this.foldersRepo.find({
       where: { project: { id: projectId } },
@@ -195,6 +194,7 @@ export class ProjectsService {
 
     const existingCodes = new Set(folders.map((f) => f.code));
 
+    // Crear cualquier carpeta estándar que falte por completo (proyectos antiguos)
     for (const carpeta of CARPETAS_ESTANDAR) {
       if (!existingCodes.has(carpeta.code)) {
         const nueva = await this.foldersRepo.save(
@@ -209,27 +209,36 @@ export class ProjectsService {
     }
 
     for (const folder of folders) {
-      const estandar = CARPETAS_ESTANDAR.find((c) => c.code === folder.code);
-      if (estandar && folder.name !== estandar.name) {
-        await this.foldersRepo.update(folder.id, { name: estandar.name });
+      // Sincronizar nombre de carpeta estándar solo si aún no se ha "sembrado"
+      // (evita pisar un nombre que el Admin haya ajustado manualmente más adelante)
+      if (!folder.catalogSeeded) {
+        const estandar = CARPETAS_ESTANDAR.find((c) => c.code === folder.code);
+        if (estandar && folder.name !== estandar.name) {
+          await this.foldersRepo.update(folder.id, { name: estandar.name });
+        }
       }
+
+      if (folder.catalogSeeded) continue; // ya se completó una vez: no tocar más
 
       const catalogo = CATALOGO_ESTANDAR[folder.code];
-      if (!catalogo) continue;
+      if (catalogo) {
+        const existingNames = new Set((folder.documentTypes || []).map((t) => t.name));
+        const faltantes = catalogo.filter((c) => !existingNames.has(c.name));
 
-      const existingNames = new Set((folder.documentTypes || []).map((t) => t.name));
-      const faltantes = catalogo.filter((c) => !existingNames.has(c.name));
-
-      for (const tipo of faltantes) {
-        await this.typesRepo.save(
-          this.typesRepo.create({
-            name: tipo.name,
-            hasExpiration: tipo.hasExpiration,
-            validityDays: tipo.validityDays,
-            folder: { id: folder.id } as any,
-          }),
-        );
+        for (const tipo of faltantes) {
+          await this.typesRepo.save(
+            this.typesRepo.create({
+              name: tipo.name,
+              hasExpiration: tipo.hasExpiration,
+              validityDays: tipo.validityDays,
+              folder: { id: folder.id } as any,
+            }),
+          );
+        }
       }
+
+      // Marcar como sembrada para que nunca más se reprocese automáticamente
+      await this.foldersRepo.update(folder.id, { catalogSeeded: true });
     }
   }
 
@@ -244,8 +253,10 @@ export class ProjectsService {
       throw new ConflictException(`Ya existe una carpeta con el código "${data.code}" en este proyecto`);
     }
 
+    // Las carpetas creadas manualmente ya nacen "sembradas": no tienen
+    // catálogo predefinido que completar automáticamente.
     const folder = await this.foldersRepo.save(
-      this.foldersRepo.create({ code: data.code, name: data.name, project }),
+      this.foldersRepo.create({ code: data.code, name: data.name, project, catalogSeeded: true }),
     );
 
     await this.auditService.log({
