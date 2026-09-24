@@ -15,19 +15,29 @@ export class Folder {
   id: string;
 
   @Column()
-  code: string; // ej: "01", "02"...
+  code: string;
 
   @Column()
-  name: string; // ej: "Documentación General"
+  name: string;
 
   @ManyToOne(() => Project, (p) => p.folders, { onDelete: 'CASCADE' })
   project: Project;
 
   @ManyToOne(() => Folder, { nullable: true })
-  parent: Folder; // subcarpetas configurables
+  parent: Folder;
 
   @OneToMany(() => DocumentType, (dt) => dt.folder)
   documentTypes: DocumentType[];
+
+  /**
+   * Una vez que el catálogo estándar de subcarpetas se completó por
+   * primera vez en esta carpeta, se marca en true y NUNCA se vuelve a
+   * tocar automáticamente — así, si el Admin renombra o borra una
+   * subcarpeta manualmente, el sistema no la "recrea" por accidente
+   * en la siguiente visita.
+   */
+  @Column({ default: false })
+  catalogSeeded: boolean;
 
   @CreateDateColumn()
   createdAt: Date;
