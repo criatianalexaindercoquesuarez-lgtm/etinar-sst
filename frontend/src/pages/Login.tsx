@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 
 export default function Login() {
-  const [email, setEmail] = useState('sst@etinar.com');
-  const [password, setPassword] = useState('Etinar2026!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -52,10 +52,12 @@ export default function Login() {
             <input
               type="email"
               required
+              autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-steel-800 border border-steel-600 rounded px-3 py-2.5 text-white placeholder-steel-400 focus:outline-none focus:ring-2 focus:ring-safety-500"
               placeholder="tu@empresa.com"
+              autoComplete="username"
             />
           </div>
           <div>
@@ -69,6 +71,7 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-steel-800 border border-steel-600 rounded px-3 py-2.5 text-white placeholder-steel-400 focus:outline-none focus:ring-2 focus:ring-safety-500"
               placeholder="••••••••"
+              autoComplete="current-password"
             />
           </div>
 
@@ -83,13 +86,6 @@ export default function Login() {
           >
             {loading ? 'Ingresando...' : 'Ingresar'}
           </button>
-
-          <div className="pt-4 border-t border-steel-700 text-xs text-steel-400 space-y-1">
-            <p className="font-semibold text-steel-200 mb-1">Usuarios de demostración:</p>
-            <p>admin@etinar.com · sst@etinar.com · director@etinar.com</p>
-            <p>contratista@cmpacifico.ec</p>
-            <p>Contraseña para todos: <span className="font-mono text-safety-400">Etinar2026!</span></p>
-          </div>
         </form>
       </div>
     </div>
