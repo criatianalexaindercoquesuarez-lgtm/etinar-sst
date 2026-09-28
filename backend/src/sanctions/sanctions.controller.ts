@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { SanctionsService } from './sanctions.service';
 import { Roles, RolesGuard } from '../auth/roles.guard';
@@ -28,7 +28,7 @@ export class SanctionsController {
 
   @Get()
   @Roles('admin', 'coordinador_sst', 'director')
-  findAllSanctions() {
-    return this.sanctionsService.findAllSanctions();
+  findAllSanctions(@Req() req: any) {
+    return this.sanctionsService.findAllSanctions(req.user);
   }
 }
