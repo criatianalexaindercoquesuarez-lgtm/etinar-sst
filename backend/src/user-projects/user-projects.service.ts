@@ -4,7 +4,15 @@ import { Repository } from 'typeorm';
 import { UserProject } from '../entities/user-project.entity';
 import { User } from '../entities/user.entity';
 import { Project } from '../entities/project.entity';
+import { ContractorProject } from '../entities/contractor-project.entity';
 import { AuditService } from '../common/audit.service';
+
+export interface AccessScope {
+  /** null = sin restricción (ve todos los proyectos) */
+  projectIds: string[] | null;
+  /** null = no es un contratista, o ve todos los contratistas dentro de su alcance */
+  contractorId: string | null;
+}
 
 @Injectable()
 export class UserProjectsService {
@@ -12,15 +20,11 @@ export class UserProjectsService {
     @InjectRepository(UserProject) private userProjectsRepo: Repository<UserProject>,
     @InjectRepository(User) private usersRepo: Repository<User>,
     @InjectRepository(Project) private projectsRepo: Repository<Project>,
+    @InjectRepository(ContractorProject)
+    private contractorProjectsRepo: Repository<ContractorProject>,
     private auditService: AuditService,
   ) {}
 
-  /**
-   * IDs de los proyectos a los que un usuario está restringido.
-   * Array VACÍO significa "sin restricción" (acceso global) — así
-   * ningún usuario existente pierde acceso por accidente al agregar
-   * esta función.
-   */
   async getAssignedProjectIds(userId: string): Promise<string[]> {
     const links = await this.userProjectsRepo.find({
       where: { user: { id: userId } },
@@ -88,5 +92,43 @@ export class UserProjectsService {
     });
 
     return { success: true };
+  }
+
+  /**
+   * Punto único de verdad sobre "qué puede ver" el usuario que hace la
+   * petición. Se usa en Dashboard, Reportes y Sanciones para que todos
+   * apliquen exactamente la misma regla:
+   *
+   * - Contratista: SOLO su propia empresa (contractorId fijo), dentro de
+   *   los proyectos a los que su empresa está asignada.
+   * - Usuario interno (admin/coordinador_sst/director) CON proyectos
+   *   asignados (UserProject): solo esos proyectos, cualquier contratista
+   *   dentro de ellos.
+   * - Usuario interno SIN restricción: sin límites (comportamiento
+   *   histórico, no rompe nada existente).
+   */
+  async resolveScope(actingUser: any): Promise<AccessScope> {
+    if (!actingUser) return { projectIds: null, contractorId: null };
+
+    if (actingUser.role === 'contratista') {
+      const links = await this.contractorProjectsRepo.find({
+        where: { contractor: { id: actingUser.contractorId } },
+        relations: { project: true },
+      });
+      return {
+        projectIds: links.map((l) => l.project.id),
+        contractorId: actingUser.contractorId,
+      };
+    }
+
+    if (actingUser.userId) {
+      const projectIds = await this.getAssignedProjectIds(actingUser.userId);
+      return {
+        projectIds: projectIds.length > 0 ? projectIds : null,
+        contractorId: null,
+      };
+    }
+
+    return { projectIds: null, contractorId: null };
   }
 }
