@@ -25,18 +25,8 @@ export class DashboardService {
     private userProjectsService: UserProjectsService,
   ) {}
 
-  /**
-   * Si el usuario tiene proyectos asignados (restringido), devuelve esos
-   * IDs. Si no tiene ninguno (acceso global, comportamiento por defecto),
-   * devuelve null — "sin restricción".
-   */
-  private async getScope(actingUser?: any): Promise<string[] | null> {
-    if (!actingUser?.userId) return null;
-    const ids = await this.userProjectsService.getAssignedProjectIds(actingUser.userId);
-    return ids.length > 0 ? ids : null;
-  }
-
   private async getScopedContractorIds(projectIds: string[]): Promise<string[]> {
+    if (projectIds.length === 0) return [];
     const links = await this.contractorProjectsRepo.find({
       where: { project: { id: In(projectIds) } },
       relations: { contractor: true },
@@ -45,40 +35,44 @@ export class DashboardService {
   }
 
   async getSummary(actingUser?: any) {
-    const scope = await this.getScope(actingUser);
+    const scope = await this.userProjectsService.resolveScope(actingUser);
 
-    const [projects, allContractors, contractorIds] = await Promise.all([
-      scope
-        ? this.projectsRepo.find({ where: { id: In(scope) } })
-        : this.projectsRepo.find(),
-      this.contractorsRepo.find(),
-      scope ? this.getScopedContractorIds(scope) : null,
-    ]);
+    const projects = scope.projectIds
+      ? await this.projectsRepo.find({ where: { id: In(scope.projectIds) } })
+      : await this.projectsRepo.find();
 
-    const contractors = scope
+    let contractorIds: string[] | null = null;
+    if (scope.contractorId) {
+      contractorIds = [scope.contractorId]; // contratista: SOLO su propia empresa
+    } else if (scope.projectIds) {
+      contractorIds = await this.getScopedContractorIds(scope.projectIds);
+    }
+
+    const allContractors = await this.contractorsRepo.find();
+    const contractors = contractorIds
       ? allContractors.filter((c) => contractorIds!.includes(c.id))
       : allContractors;
 
-    const documents = scope
-      ? await this.documentsRepo.find({ where: { project: { id: In(scope) } } })
-      : await this.documentsRepo.find();
+    const docWhere: any = {};
+    if (scope.projectIds) docWhere.project = { id: In(scope.projectIds) };
+    if (scope.contractorId) docWhere.contractor = { id: scope.contractorId };
+    const documents = await this.documentsRepo.find({ where: docWhere });
 
-    const workers = scope
-      ? await this.workersRepo.find({ where: { contractor: { id: In(contractorIds!.length ? contractorIds! : ['__none__']) } } })
+    const workers = contractorIds
+      ? await this.workersRepo.find({
+          where: { contractor: { id: In(contractorIds.length ? contractorIds : ['__none__']) } },
+        })
       : await this.workersRepo.find();
 
-    const alerts = scope
-      ? await this.alertsRepo.find({
-          where: { resolved: false, document: { project: { id: In(scope) } } },
-          relations: { document: true },
-        })
-      : await this.alertsRepo.find({ where: { resolved: false } });
+    const alertWhere: any = { resolved: false };
+    if (scope.projectIds) alertWhere.document = { project: { id: In(scope.projectIds) } };
+    const alerts = await this.alertsRepo.find({ where: alertWhere, relations: { document: true } });
 
-    const sanctions = scope
-      ? await this.sanctionsRepo.find({
-          where: { rule: { action: SanctionAction.MULTA }, contractor: { id: In(contractorIds!.length ? contractorIds! : ['__none__']) } },
-        })
-      : await this.sanctionsRepo.find({ where: { rule: { action: SanctionAction.MULTA } } });
+    const sanctionWhere: any = { rule: { action: SanctionAction.MULTA } };
+    if (contractorIds) {
+      sanctionWhere.contractor = { id: In(contractorIds.length ? contractorIds : ['__none__']) };
+    }
+    const sanctions = await this.sanctionsRepo.find({ where: sanctionWhere });
 
     const totalProjects = projects.length;
     const activeProjects = projects.filter((p) => p.status === ProjectStatus.ACTIVO).length;
@@ -128,9 +122,9 @@ export class DashboardService {
   }
 
   async getByProject(actingUser?: any) {
-    const scope = await this.getScope(actingUser);
-    const projects = scope
-      ? await this.projectsRepo.find({ where: { id: In(scope) } })
+    const scope = await this.userProjectsService.resolveScope(actingUser);
+    const projects = scope.projectIds
+      ? await this.projectsRepo.find({ where: { id: In(scope.projectIds) } })
       : await this.projectsRepo.find();
 
     const results: Array<{
@@ -144,7 +138,9 @@ export class DashboardService {
     }> = [];
 
     for (const project of projects) {
-      const docs = await this.documentsRepo.find({ where: { project: { id: project.id } } });
+      const docWhere: any = { project: { id: project.id } };
+      if (scope.contractorId) docWhere.contractor = { id: scope.contractorId };
+      const docs = await this.documentsRepo.find({ where: docWhere });
       const total = docs.length;
       const approved = docs.filter((d) => d.status === DocumentStatus.APROBADO).length;
       const rate = total > 0 ? Math.round((approved / total) * 100) : 0;
@@ -162,15 +158,17 @@ export class DashboardService {
   }
 
   async getByContractor(actingUser?: any) {
-    const scope = await this.getScope(actingUser);
-    const contractors = scope
-      ? await (async () => {
-          const ids = await this.getScopedContractorIds(scope);
-          return ids.length
-            ? this.contractorsRepo.find({ where: { id: In(ids) } })
-            : [];
-        })()
-      : await this.contractorsRepo.find();
+    const scope = await this.userProjectsService.resolveScope(actingUser);
+
+    let contractors: Contractor[];
+    if (scope.contractorId) {
+      contractors = await this.contractorsRepo.find({ where: { id: scope.contractorId } });
+    } else if (scope.projectIds) {
+      const ids = await this.getScopedContractorIds(scope.projectIds);
+      contractors = ids.length ? await this.contractorsRepo.find({ where: { id: In(ids) } }) : [];
+    } else {
+      contractors = await this.contractorsRepo.find();
+    }
 
     const results: Array<{
       contractorId: string;
