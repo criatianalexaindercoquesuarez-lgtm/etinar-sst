@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Between, In, Repository } from 'typeorm';
 import PDFDocument = require('pdfkit');
 import * as ExcelJS from 'exceljs';
 import { Document } from '../entities/document.entity';
@@ -9,6 +9,8 @@ import { Project } from '../entities/project.entity';
 import { Sanction } from '../entities/sanction.entity';
 import { Alert } from '../entities/alert.entity';
 import { AuditLog } from '../entities/audit-log.entity';
+import { ContractorProject } from '../entities/contractor-project.entity';
+import { UserProjectsService, AccessScope } from '../user-projects/user-projects.service';
 
 const STATUS_LABELS: Record<string, string> = {
   pendiente: 'Pendiente',
@@ -35,12 +37,39 @@ export class ReportsService {
     @InjectRepository(Sanction) private sanctionsRepo: Repository<Sanction>,
     @InjectRepository(Alert) private alertsRepo: Repository<Alert>,
     @InjectRepository(AuditLog) private auditRepo: Repository<AuditLog>,
+    @InjectRepository(ContractorProject)
+    private contractorProjectsRepo: Repository<ContractorProject>,
+    private userProjectsService: UserProjectsService,
   ) {}
 
-  // ---------- PDF: Reporte Ejecutivo de Cumplimiento (general, no mensual) ----------
-  async buildCompliancePdf(): Promise<Buffer> {
-    const contractors = await this.contractorsRepo.find();
-    const documents = await this.documentsRepo.find({ relations: { contractor: true } });
+  private async getScopedContractorIds(scope: AccessScope): Promise<string[] | null> {
+    if (scope.contractorId) return [scope.contractorId];
+    if (scope.projectIds) {
+      const links = await this.contractorProjectsRepo.find({
+        where: { project: { id: In(scope.projectIds) } },
+        relations: { contractor: true },
+      });
+      return [...new Set(links.map((l) => l.contractor.id))];
+    }
+    return null; // sin restricción
+  }
+
+  private async getScopedDocuments(scope: AccessScope) {
+    const where: any = {};
+    if (scope.projectIds) where.project = { id: In(scope.projectIds) };
+    if (scope.contractorId) where.contractor = { id: scope.contractorId };
+    return this.documentsRepo.find({ where, relations: { contractor: true } });
+  }
+
+  // ---------- PDF: Reporte Ejecutivo de Cumplimiento ----------
+  async buildCompliancePdf(actingUser?: any): Promise<Buffer> {
+    const scope = await this.userProjectsService.resolveScope(actingUser);
+    const contractorIds = await this.getScopedContractorIds(scope);
+    const allContractors = await this.contractorsRepo.find();
+    const contractors = contractorIds
+      ? allContractors.filter((c) => contractorIds.includes(c.id))
+      : allContractors;
+    const documents = await this.getScopedDocuments(scope);
 
     const rows = contractors.map((c) => {
       const docs = documents.filter((d) => d.contractor?.id === c.id);
@@ -68,7 +97,7 @@ export class ReportsService {
 
       doc.fontSize(11).fillColor('#16202c').text(`Cumplimiento general: ${overallRate}%`);
       doc.fontSize(10).fillColor('#3d5266').text(`Documentos totales: ${totalDocs}  ·  Aprobados: ${totalApproved}`);
-      doc.text(`Contratistas registrados: ${contractors.length}`);
+      doc.text(`Contratistas incluidos en este reporte: ${contractors.length}`);
       doc.moveDown(1);
 
       doc.fontSize(12).fillColor('#16202c').text('Cumplimiento por contratista');
@@ -96,15 +125,21 @@ export class ReportsService {
         doc.moveDown(0.6);
       }
       if (rows.length === 0) {
-        doc.fontSize(9).fillColor('#7c93a8').text('No hay contratistas registrados.');
+        doc.fontSize(9).fillColor('#7c93a8').text('No hay contratistas para mostrar.');
       }
       doc.end();
     });
   }
 
   // ---------- Excel: Listado completo de documentos ----------
-  async buildDocumentsExcel(): Promise<ExcelJS.Buffer> {
+  async buildDocumentsExcel(actingUser?: any): Promise<ExcelJS.Buffer> {
+    const scope = await this.userProjectsService.resolveScope(actingUser);
+    const where: any = {};
+    if (scope.projectIds) where.project = { id: In(scope.projectIds) };
+    if (scope.contractorId) where.contractor = { id: scope.contractorId };
+
     const documents = await this.documentsRepo.find({
+      where,
       relations: { contractor: true, project: true, folder: true, documentType: true, versions: true },
       order: { createdAt: 'DESC' },
     });
@@ -146,6 +181,11 @@ export class ReportsService {
   }
 
   // ---------- CSV: Bitácora de auditoría ----------
+  // NOTA: no se filtra por proyecto/contratista. El registro de auditoría
+  // no guarda a qué proyecto pertenece cada acción (solo quién, qué y
+  // cuándo), así que restringirlo de forma confiable requeriría cambios
+  // de esquema más grandes. Por ahora sigue siendo global para quien
+  // tenga acceso a Reportes.
   async buildAuditCsv(): Promise<string> {
     const logs = await this.auditRepo.find({ order: { createdAt: 'DESC' }, take: 5000 });
     const header = ['Fecha', 'Usuario', 'Accion', 'Tipo', 'ID', 'Detalle'];
@@ -167,8 +207,15 @@ export class ReportsService {
   }
 
   // ---------- Excel: Sanciones y multas aplicadas ----------
-  async buildSanctionsExcel(): Promise<ExcelJS.Buffer> {
+  async buildSanctionsExcel(actingUser?: any): Promise<ExcelJS.Buffer> {
+    const scope = await this.userProjectsService.resolveScope(actingUser);
+    const contractorIds = await this.getScopedContractorIds(scope);
+
+    const where: any = {};
+    if (contractorIds) where.contractor = { id: In(contractorIds.length ? contractorIds : ['__none__']) };
+
     const sanctions = await this.sanctionsRepo.find({
+      where,
       relations: { rule: true, contractor: true, worker: true, document: { documentType: true } },
       order: { appliedAt: 'DESC' },
     });
@@ -201,26 +248,37 @@ export class ReportsService {
     return workbook.xlsx.writeBuffer();
   }
 
-  /**
-   * Reúne los datos del informe mensual: cumplimiento general, por
-   * proyecto, por contratista, sanciones y alertas del mes en curso
-   * (o el mes indicado). Se reutiliza tanto para el PDF como para el Excel.
-   */
-  private async gatherMonthlyData(year: number, month: number) {
+  private async gatherMonthlyData(year: number, month: number, actingUser?: any) {
+    const scope = await this.userProjectsService.resolveScope(actingUser);
     const monthStart = new Date(year, month - 1, 1);
     const monthEnd = new Date(year, month, 0, 23, 59, 59);
 
-    const [projects, contractors, documents, sanctionsThisMonth, unresolvedAlerts] =
-      await Promise.all([
-        this.projectsRepo.find(),
-        this.contractorsRepo.find(),
-        this.documentsRepo.find({ relations: { contractor: true, project: true } }),
-        this.sanctionsRepo.find({
-          where: { appliedAt: Between(monthStart, monthEnd) },
-          relations: { rule: true, contractor: true },
-        }),
-        this.alertsRepo.find({ where: { resolved: false }, relations: { document: { contractor: true } } }),
-      ]);
+    const allProjects = await this.projectsRepo.find();
+    const projects = scope.projectIds
+      ? allProjects.filter((p) => scope.projectIds!.includes(p.id))
+      : allProjects;
+
+    const contractorIds = await this.getScopedContractorIds(scope);
+    const allContractors = await this.contractorsRepo.find();
+    const contractors = contractorIds
+      ? allContractors.filter((c) => contractorIds.includes(c.id))
+      : allContractors;
+
+    const documents = await this.getScopedDocuments(scope);
+
+    const sanctionWhere: any = { appliedAt: Between(monthStart, monthEnd) };
+    if (contractorIds) sanctionWhere.contractor = { id: In(contractorIds.length ? contractorIds : ['__none__']) };
+    const sanctionsThisMonth = await this.sanctionsRepo.find({
+      where: sanctionWhere,
+      relations: { rule: true, contractor: true },
+    });
+
+    const alertWhere: any = { resolved: false };
+    if (scope.projectIds) alertWhere.document = { project: { id: In(scope.projectIds) } };
+    const unresolvedAlerts = await this.alertsRepo.find({
+      where: alertWhere,
+      relations: { document: { contractor: true } },
+    });
 
     const totalDocs = documents.length;
     const approved = documents.filter((d) => d.status === 'aprobado').length;
@@ -229,7 +287,7 @@ export class ReportsService {
     const overallRate = totalDocs > 0 ? Math.round((approved / totalDocs) * 100) : 0;
 
     const byProject = projects.map((p) => {
-      const docs = documents.filter((d) => d.project?.id === p.id);
+      const docs = documents.filter((d: any) => d.project?.id === p.id);
       const total = docs.length;
       const appr = docs.filter((d) => d.status === 'aprobado').length;
       const rate = total > 0 ? Math.round((appr / total) * 100) : 0;
@@ -267,8 +325,8 @@ export class ReportsService {
     };
   }
 
-  async buildMonthlyExecutivePdf(year: number, month: number): Promise<Buffer> {
-    const data = await this.gatherMonthlyData(year, month);
+  async buildMonthlyExecutivePdf(year: number, month: number, actingUser?: any): Promise<Buffer> {
+    const data = await this.gatherMonthlyData(year, month, actingUser);
 
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50, size: 'A4' });
@@ -279,22 +337,20 @@ export class ReportsService {
 
       doc.fontSize(18).fillColor('#16202c').text('Sistema SST ETINAR');
       doc.fontSize(13).fillColor('#3d5266').text(`Informe Mensual de Gestión — ${data.period}`);
-      doc.fontSize(9).fillColor('#7c93a8').text(`Generado para Gerencia y Directores de Obra · ${new Date().toLocaleString('es-EC')}`);
+      doc.fontSize(9).fillColor('#7c93a8').text(`Generado ${new Date().toLocaleString('es-EC')}`);
       doc.moveDown(1.2);
 
-      // KPIs principales
       doc.fontSize(12).fillColor('#16202c').text('Resumen ejecutivo');
       doc.moveDown(0.3);
       doc.fontSize(10).fillColor('#3d5266');
       doc.text(`Cumplimiento documental general: ${data.overallRate}%`);
-      doc.text(`Proyectos activos: ${data.totalProjects}   ·   Contratistas: ${data.totalContractors}`);
+      doc.text(`Proyectos: ${data.totalProjects}   ·   Contratistas: ${data.totalContractors}`);
       doc.text(`Empresas bloqueadas: ${data.blockedContractors}   ·   Suspendidas: ${data.suspendedContractors}`);
       doc.text(`Documentos: ${data.totalDocs} totales, ${data.approved} aprobados, ${data.porVencer} por vencer, ${data.vencido} vencidos`);
       doc.text(`Sanciones aplicadas en el mes: ${data.sanctionsThisMonth.length}`);
       doc.text(`Alertas sin resolver: ${data.unresolvedAlerts.length}`);
       doc.moveDown(1);
 
-      // Cumplimiento por proyecto
       doc.fontSize(12).fillColor('#16202c').text('Cumplimiento por proyecto');
       doc.moveDown(0.3);
       doc.fontSize(9).fillColor('#7c93a8');
@@ -315,11 +371,10 @@ export class ReportsService {
         doc.moveDown(0.6);
       }
       if (data.byProject.length === 0) {
-        doc.fontSize(9).fillColor('#7c93a8').text('No hay proyectos registrados.');
+        doc.fontSize(9).fillColor('#7c93a8').text('No hay proyectos para mostrar.');
       }
       doc.moveDown(0.8);
 
-      // Ranking por contratista
       if (doc.y > 650) doc.addPage();
       doc.fontSize(12).fillColor('#16202c').text('Ranking de cumplimiento por contratista');
       doc.moveDown(0.3);
@@ -342,10 +397,9 @@ export class ReportsService {
         doc.moveDown(0.6);
       }
       if (data.byContractor.length === 0) {
-        doc.fontSize(9).fillColor('#7c93a8').text('No hay contratistas registrados.');
+        doc.fontSize(9).fillColor('#7c93a8').text('No hay contratistas para mostrar.');
       }
 
-      // Sanciones del mes
       doc.moveDown(0.8);
       if (doc.y > 650) doc.addPage();
       doc.fontSize(12).fillColor('#16202c').text('Sanciones aplicadas en el mes');
@@ -365,8 +419,8 @@ export class ReportsService {
     });
   }
 
-  async buildMonthlyExecutiveExcel(year: number, month: number): Promise<ExcelJS.Buffer> {
-    const data = await this.gatherMonthlyData(year, month);
+  async buildMonthlyExecutiveExcel(year: number, month: number, actingUser?: any): Promise<ExcelJS.Buffer> {
+    const data = await this.gatherMonthlyData(year, month, actingUser);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Sistema SST ETINAR';
     workbook.created = new Date();
