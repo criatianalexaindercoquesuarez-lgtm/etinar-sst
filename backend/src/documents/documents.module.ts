@@ -13,6 +13,7 @@ import { DocumentTypesService } from './document-types.service';
 import { CommonModule } from '../common/common.module';
 import { SharePointModule } from '../sharepoint/sharepoint.module';
 import { UserProjectsModule } from '../user-projects/user-projects.module';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { UserProjectsModule } from '../user-projects/user-projects.module';
     CommonModule,
     SharePointModule,
     UserProjectsModule,
+    StorageModule,
   ],
   providers: [DocumentsService, DocumentTypesService],
   controllers: [DocumentsController],
