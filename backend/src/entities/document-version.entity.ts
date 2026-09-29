@@ -23,16 +23,23 @@ export class DocumentVersion {
   fileName: string;
 
   @Column()
-  filePath: string; // ruta local (equivalente a S3 key en producción)
+  filePath: string; // ruta local (fallback si R2 no está configurado)
 
   @Column({ nullable: true })
   fileHash: string;
+
+  // --- Almacenamiento permanente en Cloudflare R2 ---
+  @Column({ nullable: true })
+  r2Key: string; // clave del objeto en el bucket de R2
+
+  @Column({ type: 'varchar', default: 'local' })
+  storageProvider: string; // 'local' | 'r2'
 
   @ManyToOne(() => User, { nullable: true })
   uploadedBy: User;
 
   @Column({ nullable: true })
-  uploadedByName: string; // nombre capturado cuando se sube vía enlace público (sin cuenta)
+  uploadedByName: string;
 
   @Column({ default: false })
   uploadedViaPublicLink: boolean;
@@ -41,12 +48,12 @@ export class DocumentVersion {
   uploadedAt: Date;
 
   @Column({ type: 'varchar', nullable: true })
-  reviewStatus: string; // aprobado | observado | rechazado
+  reviewStatus: string;
 
   @ManyToOne(() => User, { nullable: true })
   reviewedBy: User;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'datetime', nullable: true })
   reviewedAt: Date;
 
   @Column({ type: 'text', nullable: true })
