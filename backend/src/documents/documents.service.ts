@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as mime from 'mime-types';
 import { Document, DocumentStatus } from '../entities/document.entity';
 import { DocumentVersion } from '../entities/document-version.entity';
 import { Folder } from '../entities/folder.entity';
@@ -13,6 +14,7 @@ import { Alert, AlertType } from '../entities/alert.entity';
 import { AuditService } from '../common/audit.service';
 import { SharePointSyncService } from '../sharepoint/sharepoint-sync.service';
 import { UserProjectsService } from '../user-projects/user-projects.service';
+import { R2StorageService } from '../storage/r2-storage.service';
 
 @Injectable()
 export class DocumentsService {
@@ -28,6 +30,7 @@ export class DocumentsService {
     private auditService: AuditService,
     private sharePointSync: SharePointSyncService,
     private userProjectsService: UserProjectsService,
+    private r2Storage: R2StorageService,
   ) {}
 
   async upload(params: {
@@ -88,13 +91,47 @@ export class DocumentsService {
     const existingVersions = await this.versionsRepo.count({
       where: { document: { id: document.id } },
     });
+    const versionNumber = existingVersions + 1;
+
+    // --- Almacenamiento permanente en R2 (si está configurado) ---
+    // Se sube ANTES de guardar la versión para poder registrar de una vez
+    // dónde quedó realmente el archivo.
+    let storageProvider: 'local' | 'r2' = 'local';
+    let r2Key: string | undefined;
+
+    if (this.r2Storage.configured) {
+      const safe = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, '_');
+      r2Key = [
+        safe(project.code),
+        safe(contractor.legalName),
+        safe(folder.name),
+        safe(documentType.name),
+        `v${versionNumber}-${Date.now()}-${safe(params.file.originalname)}`,
+      ].join('/');
+
+      const contentType = mime.lookup(params.file.originalname) || 'application/octet-stream';
+      const uploaded = await this.r2Storage.uploadFile(r2Key, fileBuffer, contentType);
+      if (uploaded) {
+        storageProvider = 'r2';
+      } else {
+        r2Key = undefined; // si falla, cae de vuelta a "local" (con el riesgo conocido)
+        await this.auditService.log({
+          action: 'R2_UPLOAD_FAILED',
+          entityType: 'Document',
+          entityId: document.id,
+          details: `No se pudo subir a R2: ${params.file.originalname}`,
+        });
+      }
+    }
 
     const version = this.versionsRepo.create({
       document,
-      versionNumber: existingVersions + 1,
+      versionNumber,
       fileName: params.file.originalname,
       filePath: params.file.path,
       fileHash: hash,
+      storageProvider,
+      r2Key,
       uploadedBy: actingUser ? ({ id: actingUser.userId } as any) : undefined,
       uploadedByName: !actingUser ? uploaderName || 'Enlace público (sin nombre)' : undefined,
       uploadedViaPublicLink: !actingUser,
@@ -107,7 +144,7 @@ export class DocumentsService {
       action: actingUser ? 'DOCUMENT_UPLOAD' : 'DOCUMENT_UPLOAD_PUBLIC_LINK',
       entityType: 'DocumentVersion',
       entityId: savedVersion.id,
-      details: `Documento "${documentType.name}" v${savedVersion.versionNumber} — ${contractor.legalName} / ${project.code}`,
+      details: `Documento "${documentType.name}" v${savedVersion.versionNumber} — ${contractor.legalName} / ${project.code} (almacenamiento: ${storageProvider})`,
     });
 
     if (this.sharePointSync.configured) {
@@ -230,11 +267,6 @@ export class DocumentsService {
     });
   }
 
-  /**
-   * Documentos pendientes de revisión. Si el usuario (Coordinador SST,
-   * Director, Admin) tiene proyectos asignados en UserProject, solo ve
-   * los pendientes de ESOS proyectos. Sin asignación, ve todos (default).
-   */
   async findPendingReview(actingUser?: any) {
     const where: any = [
       { status: DocumentStatus.PENDIENTE },
