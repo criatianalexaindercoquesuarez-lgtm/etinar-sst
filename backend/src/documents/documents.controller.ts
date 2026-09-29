@@ -21,6 +21,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { DocumentsService } from './documents.service';
 import { DocumentTypesService } from './document-types.service';
 import { Roles, RolesGuard } from '../auth/roles.guard';
+import { R2StorageService } from '../storage/r2-storage.service';
 
 @Controller('documents')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -28,6 +29,7 @@ export class DocumentsController {
   constructor(
     private documentsService: DocumentsService,
     private documentTypesService: DocumentTypesService,
+    private r2Storage: R2StorageService,
   ) {}
 
   @Post('upload')
@@ -90,13 +92,37 @@ export class DocumentsController {
     return this.documentsService.runExpirationCheck();
   }
 
+  /**
+   * Sirve el archivo desde Cloudflare R2 (permanente) si la versión se
+   * guardó ahí; si no, cae al disco local (con el riesgo conocido de que
+   * pueda ya no existir tras un redespliegue).
+   */
   @Get('version/:versionId/file')
   async getFile(@Param('versionId') versionId: string, @Req() req: any, @Res() res: Response) {
     const version = await this.documentsService.getVersionForDownload(versionId, req.user);
     const contentType = mime.lookup(version.fileName) || 'application/octet-stream';
+
+    if (version.storageProvider === 'r2' && version.r2Key) {
+      const file = await this.r2Storage.getFileStream(version.r2Key);
+      if (file) {
+        res.setHeader('Content-Type', file.contentType || contentType);
+        res.setHeader('Content-Disposition', `inline; filename="${version.fileName}"`);
+        file.stream.pipe(res);
+        return;
+      }
+      // Si por algún motivo R2 falla al leer, se intenta el respaldo local.
+    }
+
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `inline; filename="${version.fileName}"`);
-    res.sendFile(version.filePath, { root: '.' });
+    res.sendFile(version.filePath, { root: '.' }, (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).json({
+          message:
+            'El archivo ya no está disponible (se guardó solo en disco temporal antes de activar el almacenamiento permanente).',
+        });
+      }
+    });
   }
 
   @Get(':id')
