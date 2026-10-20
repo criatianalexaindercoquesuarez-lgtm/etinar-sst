@@ -4,6 +4,13 @@ import { api } from '../lib/api';
 import { StatusBadge } from '../components/Badges';
 import DocumentViewerModal from '../components/DocumentViewerModal';
 
+interface DocVersion {
+  id: string;
+  versionNumber: number;
+  fileName: string;
+  uploadedAt: string;
+}
+
 interface PendingDoc {
   id: string;
   status: string;
@@ -11,13 +18,18 @@ interface PendingDoc {
   folder: { code: string; name: string };
   contractor: { legalName: string };
   project: { id: string; code: string; name: string };
-  versions: {
-    id: string;
-    versionNumber: number;
-    fileName: string;
-    uploadedAt: string;
-  }[];
+  versions: DocVersion[];
   createdAt: string;
+}
+
+/**
+ * La versión vigente es la de número MÁS ALTO. No se debe asumir que la
+ * última posición de la lista es la más reciente: la base de datos no
+ * garantiza el orden de las versiones y puede variar según la consulta.
+ */
+function getLatestVersion(versions: DocVersion[]): DocVersion | undefined {
+  if (!versions || versions.length === 0) return undefined;
+  return versions.reduce((best, v) => (v.versionNumber > best.versionNumber ? v : best));
 }
 
 export default function Review() {
@@ -32,7 +44,6 @@ export default function Review() {
   }
   useEffect(load, []);
 
-  // Proyectos únicos presentes en la lista actual, para el filtro.
   const projectOptions = useMemo(() => {
     const map = new Map<string, { id: string; code: string; name: string }>();
     docs.forEach((d) => {
@@ -98,7 +109,7 @@ export default function Review() {
 
       <div className="space-y-3">
         {filteredDocs.map((d) => {
-          const latest = d.versions[d.versions.length - 1];
+          const latest = getLatestVersion(d.versions);
           return (
             <div
               key={d.id}
