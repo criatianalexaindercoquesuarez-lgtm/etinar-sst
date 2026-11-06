@@ -1,4 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import * as crypto from 'crypto';
@@ -58,7 +65,8 @@ export class DocumentsService {
       throw new BadRequestException('No se recibió ningún archivo');
     }
 
-    let document = await this.documentsRepo.findOne({
+    // 1) Solo LECTURA: se calcula la versión sin tocar todavía la base de datos.
+    const existingDocument = await this.documentsRepo.findOne({
       where: {
         project: { id: project.id },
         contractor: { id: contractor.id },
@@ -67,7 +75,56 @@ export class DocumentsService {
       },
       relations: { versions: true },
     });
+    const existingVersions = existingDocument
+      ? await this.versionsRepo.count({ where: { document: { id: existingDocument.id } } })
+      : 0;
+    const versionNumber = existingVersions + 1;
 
+    const fileBuffer = fs.readFileSync(params.file.path);
+    const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+    // 2) Almacenamiento permanente. Si R2 está configurado y RECHAZA el
+    //    archivo, la carga FALLA con un mensaje claro. Antes se guardaba solo
+    //    en disco temporal sin avisar, y el archivo se perdía después.
+    let storageProvider: 'local' | 'r2' = 'local';
+    let r2Key: string | undefined;
+
+    if (this.r2Storage.configured) {
+      const safe = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const key = [
+        safe(project.code),
+        safe(contractor.legalName),
+        safe(folder.name),
+        safe(documentType.name),
+        `v${versionNumber}-${Date.now()}-${safe(params.file.originalname)}`,
+      ].join('/');
+
+      const contentType = mime.lookup(params.file.originalname) || 'application/octet-stream';
+      const result = await this.r2Storage.uploadFile(key, fileBuffer, contentType);
+
+      if (!result.ok) {
+        await this.auditService.log({
+          userId: actingUser?.userId,
+          userEmail: actingUser?.email ?? `enlace-público:${uploaderName || 'sin nombre'}`,
+          action: 'R2_UPLOAD_FAILED',
+          entityType: 'Document',
+          entityId: existingDocument?.id,
+          details: `No se pudo guardar "${params.file.originalname}" (${contractor.legalName} / ${project.code}): ${result.error}`,
+        });
+        fs.unlink(params.file.path, () => undefined);
+        throw new HttpException(
+          'No se pudo guardar el archivo en el almacenamiento permanente, por eso NO se registró la carga. ' +
+            'Intenta de nuevo en unos minutos y, si se repite, avisa al administrador.',
+          HttpStatus.BAD_GATEWAY,
+        );
+      }
+
+      storageProvider = 'r2';
+      r2Key = key;
+    }
+
+    // 3) Solo ahora se escribe en la base de datos.
+    let document = existingDocument;
     if (!document) {
       document = this.documentsRepo.create({
         project,
@@ -83,45 +140,6 @@ export class DocumentsService {
       document.status = DocumentStatus.PENDIENTE;
       if (params.dueDate) document.dueDate = params.dueDate;
       await this.documentsRepo.save(document);
-    }
-
-    const fileBuffer = fs.readFileSync(params.file.path);
-    const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
-
-    const existingVersions = await this.versionsRepo.count({
-      where: { document: { id: document.id } },
-    });
-    const versionNumber = existingVersions + 1;
-
-    // --- Almacenamiento permanente en R2 (si está configurado) ---
-    // Se sube ANTES de guardar la versión para poder registrar de una vez
-    // dónde quedó realmente el archivo.
-    let storageProvider: 'local' | 'r2' = 'local';
-    let r2Key: string | undefined;
-
-    if (this.r2Storage.configured) {
-      const safe = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, '_');
-      r2Key = [
-        safe(project.code),
-        safe(contractor.legalName),
-        safe(folder.name),
-        safe(documentType.name),
-        `v${versionNumber}-${Date.now()}-${safe(params.file.originalname)}`,
-      ].join('/');
-
-      const contentType = mime.lookup(params.file.originalname) || 'application/octet-stream';
-      const uploaded = await this.r2Storage.uploadFile(r2Key, fileBuffer, contentType);
-      if (uploaded) {
-        storageProvider = 'r2';
-      } else {
-        r2Key = undefined; // si falla, cae de vuelta a "local" (con el riesgo conocido)
-        await this.auditService.log({
-          action: 'R2_UPLOAD_FAILED',
-          entityType: 'Document',
-          entityId: document.id,
-          details: `No se pudo subir a R2: ${params.file.originalname}`,
-        });
-      }
     }
 
     const version = this.versionsRepo.create({
@@ -168,6 +186,11 @@ export class DocumentsService {
           details: syncResult.error,
         });
       }
+    }
+
+    // El archivo ya está a salvo en R2: se libera la copia temporal del disco.
+    if (storageProvider === 'r2') {
+      fs.unlink(params.file.path, () => undefined);
     }
 
     return this.findOne(document.id);
