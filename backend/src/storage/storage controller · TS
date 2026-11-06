@@ -1,0 +1,32 @@
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Roles, RolesGuard } from '../auth/roles.guard';
+import { R2StorageService } from './r2-storage.service';
+import { DocumentVersion } from '../entities/document-version.entity';
+
+@Controller('storage')
+@UseGuards(AuthGuard('jwt'), RolesGuard)
+@Roles('admin')
+export class StorageController {
+  constructor(
+    private r2Storage: R2StorageService,
+    @InjectRepository(DocumentVersion) private versionsRepo: Repository<DocumentVersion>,
+  ) {}
+
+  /**
+   * Estado del almacenamiento permanente. Hace una prueba real contra R2 y
+   * cuenta cuántos archivos están realmente respaldados en R2 y cuántos
+   * viven solo en el disco temporal del servidor (en riesgo de perderse).
+   */
+  @Get('status')
+  async status() {
+    const test = await this.r2Storage.testConnection();
+    const [filesInR2, filesOnlyLocal] = await Promise.all([
+      this.versionsRepo.count({ where: { storageProvider: 'r2' } }),
+      this.versionsRepo.count({ where: { storageProvider: 'local' } }),
+    ]);
+    return { ...test, filesInR2, filesOnlyLocal };
+  }
+}
