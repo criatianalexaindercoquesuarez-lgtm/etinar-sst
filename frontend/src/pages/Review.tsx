@@ -3,11 +3,13 @@ import { CheckCircle2, AlertTriangle, XCircle, Eye, Download, Building2 } from '
 import { api } from '../lib/api';
 import { StatusBadge } from '../components/Badges';
 import DocumentViewerModal from '../components/DocumentViewerModal';
+import { downloadVersion, fileErrorMessage } from '../lib/files';
 
 interface DocVersion {
   id: string;
   versionNumber: number;
   fileName: string;
+  fileAvailable?: boolean;
   uploadedAt: string;
 }
 
@@ -59,17 +61,9 @@ export default function Review() {
   async function handleDownload(versionId: string, fileName: string) {
     setDownloadingId(versionId);
     try {
-      const res = await api.get(`/documents/version/${versionId}/file`, { responseType: 'blob' });
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch {
-      alert('No se pudo descargar el archivo.');
+      await downloadVersion(versionId, fileName);
+    } catch (err) {
+      alert(await fileErrorMessage(err));
     } finally {
       setDownloadingId(null);
     }
@@ -134,9 +128,15 @@ export default function Review() {
                     {new Date(latest.uploadedAt).toLocaleString('es-EC')}
                   </p>
                 )}
+                {latest && latest.fileAvailable === false && (
+                  <p className="text-xs font-semibold text-rojo-600 bg-rojo-100 inline-block px-2 py-1 rounded mt-1.5">
+                    Archivo no disponible (se perdió del servidor antes de la corrección). Usa “Revisar” →
+                    Observar para pedir al contratista que lo vuelva a cargar.
+                  </p>
+                )}
               </div>
               <div className="shrink-0 flex items-center gap-2">
-                {latest && (
+                {latest && latest.fileAvailable !== false && (
                   <>
                     <button
                       onClick={() => setViewing({ versionId: latest.id, fileName: latest.fileName })}

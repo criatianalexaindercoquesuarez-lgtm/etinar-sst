@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   Res,
   UploadedFile,
@@ -14,14 +15,14 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { memoryStorage } from 'multer';
 import * as mime from 'mime-types';
 import { AuthGuard } from '@nestjs/passport';
 import { DocumentsService } from './documents.service';
 import { DocumentTypesService } from './document-types.service';
 import { Roles, RolesGuard } from '../auth/roles.guard';
-import { R2StorageService } from '../storage/r2-storage.service';
+import { FileStorageService } from '../storage/file-storage.service';
+import { AuditService } from '../common/audit.service';
 
 @Controller('documents')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -29,19 +30,16 @@ export class DocumentsController {
   constructor(
     private documentsService: DocumentsService,
     private documentTypesService: DocumentTypesService,
-    private r2Storage: R2StorageService,
+    private fileStorage: FileStorageService,
+    private auditService: AuditService,
   ) {}
 
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './src/uploads',
-        filename: (req, file, cb) => {
-          const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-          cb(null, `${unique}${extname(file.originalname)}`);
-        },
-      }),
+      // En memoria: el archivo va directo al almacenamiento permanente, sin
+      // pasar por el disco temporal del servidor.
+      storage: memoryStorage(),
       limits: { fileSize: 20 * 1024 * 1024 },
     }),
   )
@@ -93,36 +91,61 @@ export class DocumentsController {
   }
 
   /**
-   * Sirve el archivo desde Cloudflare R2 (permanente) si la versión se
-   * guardó ahí; si no, cae al disco local (con el riesgo conocido de que
-   * pueda ya no existir tras un redespliegue).
+   * Entrega el archivo ORIGINAL de una versión.
+   *   ?download=1 → se descarga (attachment); sin él → se abre en el navegador (inline).
+   * Respeta permisos: un contratista solo accede a archivos de su empresa.
+   * Si el archivo físico ya no existe responde 410 con un mensaje claro.
    */
   @Get('version/:versionId/file')
-  async getFile(@Param('versionId') versionId: string, @Req() req: any, @Res() res: Response) {
+  async getFile(
+    @Param('versionId') versionId: string,
+    @Query('download') download: string,
+    @Req() req: any,
+    @Res() res: Response,
+  ) {
     const version = await this.documentsService.getVersionForDownload(versionId, req.user);
-    const contentType = mime.lookup(version.fileName) || 'application/octet-stream';
+    const file = await this.fileStorage.get(version);
 
-    if (version.storageProvider === 'r2' && version.r2Key) {
-      const file = await this.r2Storage.getFileStream(version.r2Key);
-      if (file) {
-        res.setHeader('Content-Type', file.contentType || contentType);
-        res.setHeader('Content-Disposition', `inline; filename="${version.fileName}"`);
-        file.stream.pipe(res);
-        return;
-      }
-      // Si por algún motivo R2 falla al leer, se intenta el respaldo local.
+    if (!file) {
+      res.status(410).json({
+        statusCode: 410,
+        message:
+          'El archivo de esta versión ya no está disponible: se cargó antes de activar el almacenamiento ' +
+          'permanente y el servidor lo borró al reiniciarse. Solicita al contratista que lo vuelva a cargar ' +
+          '(quedará como una nueva versión; el historial se conserva).',
+      });
+      return;
     }
 
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `inline; filename="${version.fileName}"`);
-    res.sendFile(version.filePath, { root: '.' }, (err) => {
-      if (err && !res.headersSent) {
-        res.status(404).json({
-          message:
-            'El archivo ya no está disponible (se guardó solo en disco temporal antes de activar el almacenamiento permanente).',
-        });
-      }
+    const contentType =
+      version.contentType || file.contentType || mime.lookup(version.fileName) || 'application/octet-stream';
+    const disposition = download === '1' || download === 'true' ? 'attachment' : 'inline';
+
+    await this.auditService.log({
+      userId: req.user?.userId,
+      userEmail: req.user?.email,
+      action: disposition === 'attachment' ? 'DOCUMENT_DOWNLOAD' : 'DOCUMENT_VIEW',
+      entityType: 'DocumentVersion',
+      entityId: version.id,
+      details: `${version.fileName} (v${version.versionNumber})`,
     });
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', contentDisposition(disposition, version.fileName));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Type, Content-Length');
+
+    if (file.buffer) {
+      res.setHeader('Content-Length', String(file.buffer.length));
+      res.end(file.buffer);
+      return;
+    }
+    if (file.size) res.setHeader('Content-Length', String(file.size));
+    file.stream!.on('error', (err) => {
+      if (!res.headersSent) res.status(500).json({ message: `Error leyendo el archivo: ${err.message}` });
+      else res.destroy(err);
+    });
+    file.stream!.pipe(res);
   }
 
   @Get(':id')
@@ -152,4 +175,13 @@ export class DocumentsController {
   typesByFolder(@Param('folderId') folderId: string) {
     return this.documentTypesService.findByFolder(folderId);
   }
+}
+
+/**
+ * Content-Disposition seguro para nombres con tildes, eñes o comillas.
+ * (Antes, un nombre como "Capacitación.pdf" hacía fallar la respuesta.)
+ */
+function contentDisposition(type: 'inline' | 'attachment', fileName: string): string {
+  const ascii = fileName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }

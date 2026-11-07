@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { CheckCircle2, AlertTriangle, Building2 } from 'lucide-react';
 import FileDropZone from '../components/FileDropZone';
+import { uploadErrorMessage } from '../lib/files';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -80,8 +81,8 @@ export default function PublicUpload() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setSuccess(true);
-    } catch {
-      setSubmitError('No se pudo enviar el documento. Intenta de nuevo.');
+    } catch (err) {
+      setSubmitError(uploadErrorMessage(err));
     } finally {
       setSubmitting(false);
     }

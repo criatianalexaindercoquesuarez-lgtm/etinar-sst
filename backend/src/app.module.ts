@@ -19,6 +19,7 @@ import { Sanction } from './entities/sanction.entity';
 import { NotificationLog } from './entities/notification-log.entity';
 import { UploadLink } from './entities/upload-link.entity';
 import { UserProject } from './entities/user-project.entity';
+import { StoredFile } from './entities/stored-file.entity';
 
 import { AuthModule } from './auth/auth.module';
 import { CommonModule } from './common/common.module';
@@ -53,6 +54,7 @@ const ENTITIES = [
   NotificationLog,
   UploadLink,
   UserProject,
+  StoredFile,
 ];
 
 @Module({

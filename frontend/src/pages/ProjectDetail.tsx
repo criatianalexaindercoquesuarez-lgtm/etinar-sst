@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Folder as FolderIcon, Upload, Plus, ChevronLeft, Eye } from 'lucide-react';
+import { Folder as FolderIcon, Upload, Plus, ChevronLeft, Eye, Download } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { StatusBadge } from '../components/Badges';
 import FileDropZone from '../components/FileDropZone';
 import DocumentViewerModal from '../components/DocumentViewerModal';
+import { downloadVersion, fileErrorMessage, latestVersion, uploadErrorMessage } from '../lib/files';
 
 interface DocType {
   id: string;
@@ -35,7 +36,7 @@ interface DocRow {
   documentType: { name: string };
   folder: { code: string; name: string };
   contractor: { legalName: string };
-  versions: { id: string; versionNumber: number; fileName: string }[];
+  versions: { id: string; versionNumber: number; fileName: string; fileAvailable?: boolean }[];
 }
 
 export default function ProjectDetail() {
@@ -174,7 +175,7 @@ export default function ProjectDetail() {
           </thead>
           <tbody>
             {docs.map((d) => {
-              const latest = d.versions[d.versions.length - 1];
+              const latest = latestVersion(d.versions);
               return (
                 <tr key={d.id} className="border-t border-steel-100">
                   <td className="px-6 py-3 font-medium text-steel-900">{d.documentType.name}</td>
@@ -183,13 +184,28 @@ export default function ProjectDetail() {
                   <td className="px-6 py-3 text-steel-600">v{d.versions.length}</td>
                   <td className="px-6 py-3"><StatusBadge status={d.status} /></td>
                   <td className="px-6 py-3 text-right">
-                    {latest && (
-                      <button
-                        onClick={() => setViewing({ versionId: latest.id, fileName: latest.fileName })}
-                        className="flex items-center gap-1 text-xs font-semibold text-steel-500 hover:text-safety-500 ml-auto"
-                      >
-                        <Eye size={13} /> Ver
-                      </button>
+                    {latest && latest.fileAvailable === false && (
+                      <span className="text-xs font-semibold text-rojo-600" title="El archivo se perdió del servidor antes de la corrección. Vuelve a cargarlo.">
+                        Archivo no disponible — volver a cargar
+                      </span>
+                    )}
+                    {latest && latest.fileAvailable !== false && (
+                      <div className="flex items-center justify-end gap-3">
+                        <button
+                          onClick={() => setViewing({ versionId: latest.id, fileName: latest.fileName })}
+                          className="flex items-center gap-1 text-xs font-semibold text-steel-500 hover:text-safety-500"
+                        >
+                          <Eye size={13} /> Ver
+                        </button>
+                        <button
+                          onClick={() =>
+                            downloadVersion(latest.id, latest.fileName).catch(async (e) => alert(await fileErrorMessage(e)))
+                          }
+                          className="flex items-center gap-1 text-xs font-semibold text-steel-500 hover:text-safety-500"
+                        >
+                          <Download size={13} /> Descargar
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -347,8 +363,8 @@ function UploadModal({
       });
       onUploaded();
       onClose();
-    } catch {
-      setError('No se pudo cargar el documento.');
+    } catch (err) {
+      setError(uploadErrorMessage(err));
     } finally {
       setSaving(false);
     }

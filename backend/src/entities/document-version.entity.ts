@@ -33,7 +33,17 @@ export class DocumentVersion {
   r2Key: string; // clave del objeto en el bucket de R2
 
   @Column({ type: 'varchar', default: 'local' })
-  storageProvider: string; // 'local' | 'r2'
+  storageProvider: string; // 'r2' | 'db' | 'local' (legacy: disco temporal)
+
+  // --- Almacenamiento permanente en la base de datos (tabla stored_files) ---
+  @Column({ type: 'varchar', nullable: true })
+  storedFileId: string;
+
+  @Column({ type: 'integer', nullable: true })
+  fileSize: number;
+
+  @Column({ type: 'varchar', nullable: true })
+  contentType: string;
 
   @ManyToOne(() => User, { nullable: true })
   uploadedBy: User;
@@ -53,7 +63,7 @@ export class DocumentVersion {
   @ManyToOne(() => User, { nullable: true })
   reviewedBy: User;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: process.env.DATABASE_URL ? 'timestamp' : 'datetime', nullable: true })
   reviewedAt: Date;
 
   @Column({ type: 'text', nullable: true })

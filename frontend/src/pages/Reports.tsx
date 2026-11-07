@@ -73,11 +73,14 @@ const REPORTS: ReportOption[] = [
 ];
 
 interface StorageStatus {
+  provider?: 'r2' | 'db';
   configured: boolean;
   ok: boolean;
   error?: string;
   filesInR2: number;
+  filesInDb?: number;
   filesOnlyLocal: number;
+  filesMissing?: number;
 }
 
 function StorageStatusCard() {
@@ -110,8 +113,9 @@ function StorageStatusCard() {
           <div>
             <h3 className="font-semibold text-steel-900">Estado del almacenamiento de archivos</h3>
             <p className="text-sm text-steel-600 mt-1">
-              Comprueba si los documentos que suben los contratistas se están guardando de forma
-              permanente en Cloudflare R2. Solo el administrador ve esta tarjeta.
+              Hace una prueba real de escritura y lectura para comprobar que los documentos que suben
+              los contratistas se guardan de forma permanente (Cloudflare R2 si está configurado; si no,
+              la base de datos). Solo el administrador ve esta tarjeta.
             </p>
           </div>
         </div>
@@ -131,13 +135,16 @@ function StorageStatusCard() {
       {status && status.ok && (
         <div className="mt-4 bg-verde-100 text-verde-600 rounded px-4 py-3 space-y-1">
           <p className="flex items-center gap-2 font-semibold text-sm">
-            <CheckCircle2 size={16} /> R2 funciona correctamente
+            <CheckCircle2 size={16} /> Almacenamiento permanente funcionando (
+            {status.provider === 'r2' ? 'Cloudflare R2' : 'base de datos'})
           </p>
-          <p className="text-xs">Archivos respaldados en R2: {status.filesInR2}</p>
-          {status.filesOnlyLocal > 0 && (
-            <p className="text-xs">
-              Archivos que viven solo en el disco temporal del servidor: {status.filesOnlyLocal}.
-              Esos se pueden perder; pide a los contratistas que los vuelvan a subir.
+          <p className="text-xs">
+            Archivos en base de datos: {status.filesInDb ?? 0} · Archivos en R2: {status.filesInR2}
+          </p>
+          {(status.filesMissing ?? 0) > 0 && (
+            <p className="text-xs text-rojo-600 font-semibold">
+              Versiones antiguas cuyo archivo se perdió del disco temporal: {status.filesMissing}. Aparecen
+              marcadas como “Archivo no disponible”; pide a los contratistas que las vuelvan a cargar.
             </p>
           )}
         </div>
@@ -147,7 +154,7 @@ function StorageStatusCard() {
         <div className="mt-4 bg-rojo-100 text-rojo-600 rounded px-4 py-3 space-y-2">
           <p className="flex items-center gap-2 font-semibold text-sm">
             <XCircle size={16} />{' '}
-            {status.configured ? 'R2 está configurado pero RECHAZA los archivos' : 'R2 no está configurado'}
+            {status.provider === 'r2' ? 'R2 está configurado pero RECHAZA los archivos' : 'La base de datos rechaza los archivos'}
           </p>
           <p className="text-xs font-semibold">Error exacto (cópialo y envíalo para diagnosticar):</p>
           <p className="text-xs font-mono bg-white/60 rounded px-2 py-1.5 break-words text-steel-900">

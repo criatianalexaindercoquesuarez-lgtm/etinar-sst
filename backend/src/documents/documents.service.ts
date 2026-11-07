@@ -21,7 +21,14 @@ import { Alert, AlertType } from '../entities/alert.entity';
 import { AuditService } from '../common/audit.service';
 import { SharePointSyncService } from '../sharepoint/sharepoint-sync.service';
 import { UserProjectsService } from '../user-projects/user-projects.service';
-import { R2StorageService } from '../storage/r2-storage.service';
+import { FileStorageService, SaveResult } from '../storage/file-storage.service';
+
+/** Multer decodifica el nombre como latin1; se reinterpreta como UTF-8. */
+export function fixFileName(name: string): string {
+  if (!name) return 'archivo';
+  const utf8 = Buffer.from(name, 'latin1').toString('utf8');
+  return utf8.includes('\uFFFD') ? name : utf8;
+}
 
 @Injectable()
 export class DocumentsService {
@@ -37,7 +44,7 @@ export class DocumentsService {
     private auditService: AuditService,
     private sharePointSync: SharePointSyncService,
     private userProjectsService: UserProjectsService,
-    private r2Storage: R2StorageService,
+    private fileStorage: FileStorageService,
   ) {}
 
   async upload(params: {
@@ -80,48 +87,54 @@ export class DocumentsService {
       : 0;
     const versionNumber = existingVersions + 1;
 
-    const fileBuffer = fs.readFileSync(params.file.path);
-    const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+    // Multer entrega el nombre original en latin1: se corrige a UTF-8 para que
+    // tildes y eñes ("Capacitación.pdf") se guarden y descarguen bien.
+    const originalName = fixFileName(params.file.originalname);
 
-    // 2) Almacenamiento permanente. Si R2 está configurado y RECHAZA el
-    //    archivo, la carga FALLA con un mensaje claro. Antes se guardaba solo
-    //    en disco temporal sin avisar, y el archivo se perdía después.
-    let storageProvider: 'local' | 'r2' = 'local';
-    let r2Key: string | undefined;
-
-    if (this.r2Storage.configured) {
-      const safe = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const key = [
-        safe(project.code),
-        safe(contractor.legalName),
-        safe(folder.name),
-        safe(documentType.name),
-        `v${versionNumber}-${Date.now()}-${safe(params.file.originalname)}`,
-      ].join('/');
-
-      const contentType = mime.lookup(params.file.originalname) || 'application/octet-stream';
-      const result = await this.r2Storage.uploadFile(key, fileBuffer, contentType);
-
-      if (!result.ok) {
-        await this.auditService.log({
-          userId: actingUser?.userId,
-          userEmail: actingUser?.email ?? `enlace-público:${uploaderName || 'sin nombre'}`,
-          action: 'R2_UPLOAD_FAILED',
-          entityType: 'Document',
-          entityId: existingDocument?.id,
-          details: `No se pudo guardar "${params.file.originalname}" (${contractor.legalName} / ${project.code}): ${result.error}`,
-        });
-        fs.unlink(params.file.path, () => undefined);
-        throw new HttpException(
-          'No se pudo guardar el archivo en el almacenamiento permanente, por eso NO se registró la carga. ' +
-            'Intenta de nuevo en unos minutos y, si se repite, avisa al administrador.',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
-
-      storageProvider = 'r2';
-      r2Key = key;
+    const fileBuffer: Buffer = params.file.buffer?.length
+      ? params.file.buffer
+      : params.file.path
+        ? fs.readFileSync(params.file.path)
+        : Buffer.alloc(0);
+    if (fileBuffer.length === 0) {
+      throw new BadRequestException('El archivo recibido está vacío (0 bytes). Vuelve a seleccionarlo.');
     }
+    const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+    const contentType = mime.lookup(originalName) || params.file.mimetype || 'application/octet-stream';
+
+    // 2) Almacenamiento PERMANENTE (R2 si está configurado; si no, la base de
+    //    datos). El archivo se guarda y se verifica ANTES de registrar el
+    //    documento: si falla, la carga falla con un mensaje claro y no queda
+    //    un registro "fantasma" sin archivo.
+    const safe = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const key = [
+      safe(project.code),
+      safe(contractor.legalName),
+      safe(folder.name),
+      safe(documentType.name),
+      `v${versionNumber}-${Date.now()}-${safe(originalName)}`,
+    ].join('/');
+
+    let stored: SaveResult;
+    try {
+      stored = await this.fileStorage.save({ key, buffer: fileBuffer, contentType, sha256: hash });
+    } catch (err: any) {
+      await this.auditService.log({
+        userId: actingUser?.userId,
+        userEmail: actingUser?.email ?? `enlace-público:${uploaderName || 'sin nombre'}`,
+        action: 'FILE_STORAGE_FAILED',
+        entityType: 'Document',
+        entityId: existingDocument?.id,
+        details: `No se pudo guardar "${originalName}" (${contractor.legalName} / ${project.code}): ${err?.message || err}`,
+      });
+      if (params.file.path) fs.unlink(params.file.path, () => undefined);
+      throw new HttpException(
+        'No se pudo guardar el archivo en el almacenamiento permanente, por eso NO se registró la carga. ' +
+          'Intenta de nuevo en unos minutos y, si se repite, avisa al administrador.',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    if (params.file.path) fs.unlink(params.file.path, () => undefined);
 
     // 3) Solo ahora se escribe en la base de datos.
     let document = existingDocument;
@@ -145,11 +158,14 @@ export class DocumentsService {
     const version = this.versionsRepo.create({
       document,
       versionNumber,
-      fileName: params.file.originalname,
-      filePath: params.file.path,
+      fileName: originalName,
+      filePath: '',
       fileHash: hash,
-      storageProvider,
-      r2Key,
+      fileSize: fileBuffer.length,
+      contentType,
+      storageProvider: stored.provider,
+      r2Key: stored.r2Key,
+      storedFileId: stored.storedFileId,
       uploadedBy: actingUser ? ({ id: actingUser.userId } as any) : undefined,
       uploadedByName: !actingUser ? uploaderName || 'Enlace público (sin nombre)' : undefined,
       uploadedViaPublicLink: !actingUser,
@@ -162,7 +178,7 @@ export class DocumentsService {
       action: actingUser ? 'DOCUMENT_UPLOAD' : 'DOCUMENT_UPLOAD_PUBLIC_LINK',
       entityType: 'DocumentVersion',
       entityId: savedVersion.id,
-      details: `Documento "${documentType.name}" v${savedVersion.versionNumber} — ${contractor.legalName} / ${project.code} (almacenamiento: ${storageProvider})`,
+      details: `Documento "${documentType.name}" v${savedVersion.versionNumber} — ${contractor.legalName} / ${project.code} (${originalName}, ${fileBuffer.length} bytes, almacenamiento: ${stored.provider})`,
     });
 
     if (this.sharePointSync.configured) {
@@ -171,7 +187,7 @@ export class DocumentsService {
         contractorName: contractor.legalName,
         folderName: folder.name,
         documentTypeName: documentType.name,
-        fileName: params.file.originalname,
+        fileName: originalName,
         fileBuffer,
       });
       if (syncResult.synced) {
@@ -186,11 +202,6 @@ export class DocumentsService {
           details: syncResult.error,
         });
       }
-    }
-
-    // El archivo ya está a salvo en R2: se libera la copia temporal del disco.
-    if (storageProvider === 'r2') {
-      fs.unlink(params.file.path, () => undefined);
     }
 
     return this.findOne(document.id);
@@ -264,30 +275,49 @@ export class DocumentsService {
     if (actingUser?.role === 'contratista' && actingUser.contractorId !== doc.contractor.id) {
       throw new ForbiddenException('No autorizado para ver este documento');
     }
-    return doc;
+    return this.withAvailability(doc);
   }
 
-  findByProject(projectId: string, actingUser?: any) {
+  /**
+   * Marca cada versión con fileAvailable. Las versiones antiguas guardadas solo
+   * en el disco temporal de Render pueden haberse perdido: el sistema lo indica
+   * en pantalla en lugar de fallar al abrirlas.
+   */
+  private async withAvailability<T extends Document | Document[]>(docs: T): Promise<T> {
+    const list = Array.isArray(docs) ? docs : [docs];
+    for (const d of list) {
+      for (const v of d.versions || []) {
+        (v as any).fileAvailable = await this.fileStorage.exists(v);
+      }
+    }
+    return docs;
+  }
+
+  async findByProject(projectId: string, actingUser?: any) {
     const where: any = { project: { id: projectId } };
     if (actingUser?.role === 'contratista') {
       where.contractor = { id: actingUser.contractorId };
     }
-    return this.documentsRepo.find({
-      where,
-      relations: { contractor: true, folder: true, documentType: true, versions: true },
-      order: { createdAt: 'DESC' },
-    });
+    return this.withAvailability(
+      await this.documentsRepo.find({
+        where,
+        relations: { contractor: true, folder: true, documentType: true, versions: true },
+        order: { createdAt: 'DESC' },
+      }),
+    );
   }
 
-  findByContractor(contractorId: string, actingUser?: any) {
+  async findByContractor(contractorId: string, actingUser?: any) {
     if (actingUser?.role === 'contratista' && actingUser.contractorId !== contractorId) {
       throw new ForbiddenException('No autorizado para ver los documentos de otra empresa');
     }
-    return this.documentsRepo.find({
-      where: { contractor: { id: contractorId } },
-      relations: { project: true, folder: true, documentType: true, versions: true },
-      order: { createdAt: 'DESC' },
-    });
+    return this.withAvailability(
+      await this.documentsRepo.find({
+        where: { contractor: { id: contractorId } },
+        relations: { project: true, folder: true, documentType: true, versions: true },
+        order: { createdAt: 'DESC' },
+      }),
+    );
   }
 
   async findPendingReview(actingUser?: any) {
@@ -304,17 +334,19 @@ export class DocumentsService {
       }
     }
 
-    return this.documentsRepo.find({
-      where,
-      relations: {
-        contractor: true,
-        project: true,
-        folder: true,
-        documentType: true,
-        versions: true,
-      },
-      order: { createdAt: 'ASC' },
-    });
+    return this.withAvailability(
+      await this.documentsRepo.find({
+        where,
+        relations: {
+          contractor: true,
+          project: true,
+          folder: true,
+          documentType: true,
+          versions: true,
+        },
+        order: { createdAt: 'ASC' },
+      }),
+    );
   }
 
   async getVersionForDownload(versionId: string, actingUser: any) {

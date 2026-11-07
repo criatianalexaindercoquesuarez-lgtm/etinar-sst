@@ -24,10 +24,10 @@ export class UploadLink {
   @Column({ default: true })
   active: boolean;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: process.env.DATABASE_URL ? 'timestamp' : 'datetime', nullable: true })
   expiresAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: process.env.DATABASE_URL ? 'timestamp' : 'datetime', nullable: true })
   lastUsedAt: Date;
 @Column({ type: 'int', default: 0 })
   useCount: number;
