@@ -11,6 +11,15 @@ services:
         generateValue: true
       - key: NODE_VERSION
         value: "22"
+      # Documentación Interna ETINAR (OneDrive/SharePoint + reportes por correo)
+      - key: AZURE_TENANT_ID
+        sync: false
+      - key: AZURE_CLIENT_ID
+        sync: false
+      - key: AZURE_CLIENT_SECRET
+        sync: false
+      - key: MAIL_SENDER
+        sync: false
 
   - type: web
     name: etinar-sst-frontend

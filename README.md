@@ -1,3 +1,5 @@
+> **Nuevo:** módulo **Documentación Interna ETINAR** (OneDrive/SharePoint, actividades de asistentes, matriz AM 196, reportes automáticos). Guía de activación: [DOCUMENTACION-INTERNA.md](DOCUMENTACION-INTERNA.md)
+
 # Sistema SST ETINAR — MVP Funcional
 
 Plataforma de gestión documental para contratistas de ETINAR S.A. Este es un
