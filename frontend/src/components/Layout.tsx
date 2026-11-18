@@ -12,13 +12,20 @@ import {
   FolderTree,
   KeyRound,
   LogOut,
+  ClipboardCheck,
 } from 'lucide-react';
 import { useAuth, ROLE_LABELS } from '../lib/auth';
 import ChangePasswordModal from './ChangePasswordModal';
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, roles: null },
-  { to: '/proyectos', label: 'Proyectos', icon: Building2, roles: null },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'coordinador_sst', 'director', 'contratista'] },
+  { to: '/proyectos', label: 'Proyectos', icon: Building2, roles: ['admin', 'coordinador_sst', 'director', 'contratista'] },
+  {
+    to: '/interna',
+    label: 'Documentación Interna ETINAR',
+    icon: ClipboardCheck,
+    roles: ['admin', 'coordinador_sst', 'director', 'asistente'],
+  },
   {
     to: '/contratistas',
     label: 'Contratistas',

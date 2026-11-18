@@ -33,6 +33,6 @@ export interface AuthUser {
   id: string;
   fullName: string;
   email: string;
-  role: 'admin' | 'coordinador_sst' | 'director' | 'contratista';
+  role: 'admin' | 'coordinador_sst' | 'director' | 'contratista' | 'asistente';
   contractorId: string | null;
 }

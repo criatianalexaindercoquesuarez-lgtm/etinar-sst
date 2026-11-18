@@ -4,6 +4,7 @@ import { UploadCloud, FileText, X } from 'lucide-react';
 interface Props {
   file: File | null;
   onChange: (file: File | null) => void;
+  hint?: string;
 }
 
 const ACCEPTED_TYPES = [
@@ -13,7 +14,7 @@ const ACCEPTED_TYPES = [
   'image/webp',
 ];
 
-export default function FileDropZone({ file, onChange }: Props) {
+export default function FileDropZone({ file, onChange, hint }: Props) {
   const [dragging, setDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -86,7 +87,7 @@ export default function FileDropZone({ file, onChange }: Props) {
       <p className="text-sm text-steel-600">
         Arrastra el archivo aquí, o haz clic para seleccionar
       </p>
-      <p className="text-xs text-steel-400">PDF, JPG, PNG o WEBP · máx. 20MB</p>
+      <p className="text-xs text-steel-400">{hint || 'PDF, JPG, PNG o WEBP · máx. 20MB'}</p>
       <input
         ref={inputRef}
         type="file"
