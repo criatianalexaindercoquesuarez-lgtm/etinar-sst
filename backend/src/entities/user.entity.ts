@@ -12,6 +12,9 @@ export enum UserRole {
   COORDINADOR_SST = 'coordinador_sst',
   DIRECTOR = 'director',
   CONTRATISTA = 'contratista',
+  /** Asistente SST / Ambiental / Médico / Social de ETINAR: solo ve y carga en
+   *  DOCUMENTACIÓN INTERNA, en las obras a las que está asignado. */
+  ASISTENTE = 'asistente',
 }
 
 @Entity('users')
