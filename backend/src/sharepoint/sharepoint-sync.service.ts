@@ -74,7 +74,7 @@ export class SharePointSyncService {
     ].join('/');
 
     const driveSegment = this.driveId ? `drives/${this.driveId}` : `sites/${this.siteId}/drive`;
-    const finalUrl = `https://graph.microsoft.com/v1.0/${driveSegment}/root:/${path}:/content`;
+    const finalUrl = `${this.graphAuth.baseUrl}/${driveSegment}/root:/${path}:/content`;
 
     try {
       const res = await fetch(finalUrl, {

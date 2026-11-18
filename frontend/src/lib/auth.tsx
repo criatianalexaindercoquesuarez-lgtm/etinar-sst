@@ -46,4 +46,5 @@ export const ROLE_LABELS: Record<string, string> = {
   coordinador_sst: 'Coordinador SST',
   director: 'Director',
   contratista: 'Contratista',
+  asistente: 'Asistente (Documentación Interna)',
 };

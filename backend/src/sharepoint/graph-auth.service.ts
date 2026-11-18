@@ -25,9 +25,10 @@ export class GraphAuthService {
 
   constructor() {
     const { AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET } = process.env;
-    this.configured = Boolean(AZURE_TENANT_ID && AZURE_CLIENT_ID && AZURE_CLIENT_SECRET);
+    const testMode = Boolean(process.env.GRAPH_TEST_TOKEN && process.env.NODE_ENV !== 'production');
+    this.configured = testMode || Boolean(AZURE_TENANT_ID && AZURE_CLIENT_ID && AZURE_CLIENT_SECRET);
 
-    if (this.configured) {
+    if (this.configured && !testMode) {
       this.msalApp = new ConfidentialClientApplication({
         auth: {
           clientId: AZURE_CLIENT_ID!,
@@ -45,7 +46,19 @@ export class GraphAuthService {
     }
   }
 
+  /**
+   * URL base de Microsoft Graph. Solo se cambia para pruebas automatizadas
+   * contra un servidor simulado (GRAPH_BASE_URL); en producción se usa la oficial.
+   */
+  get baseUrl(): string {
+    return (process.env.GRAPH_BASE_URL || 'https://graph.microsoft.com/v1.0').replace(/\/$/, '');
+  }
+
   async getAccessToken(): Promise<string | null> {
+    // Solo para pruebas locales con un Graph simulado. Se ignora en producción.
+    if (process.env.GRAPH_TEST_TOKEN && process.env.NODE_ENV !== 'production') {
+      return process.env.GRAPH_TEST_TOKEN;
+    }
     if (!this.configured || !this.msalApp) return null;
     try {
       const result = await this.msalApp.acquireTokenByClientCredential({

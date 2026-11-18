@@ -36,6 +36,8 @@ import { UploadLinksModule } from './upload-links/upload-links.module';
 import { PublicModule } from './public/public.module';
 import { TeamUsersModule } from './team-users/team-users.module';
 import { UserProjectsModule } from './user-projects/user-projects.module';
+import { InternalModule } from './internal/internal.module';
+import { INTERNAL_ENTITIES } from './internal/internal.entities';
 
 const ENTITIES = [
   User,
@@ -55,6 +57,7 @@ const ENTITIES = [
   UploadLink,
   UserProject,
   StoredFile,
+  ...INTERNAL_ENTITIES,
 ];
 
 @Module({
@@ -91,6 +94,7 @@ const ENTITIES = [
     PublicModule,
     TeamUsersModule,
     UserProjectsModule,
+    InternalModule,
   ],
 })
 export class AppModule {}
